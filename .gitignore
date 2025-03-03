@@ -1,0 +1,32 @@
+# Build directory
+build/
+*.o
+*.out
+*.exe
+
+# IDE specific files
+.vscode/*
+!.vscode/c_cpp_properties.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Debug files
+*.dSYM/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Resource files (if you want to ignore them)
+# resources/*.png
+# resources/*.wav
+# resources/*.ogg 
