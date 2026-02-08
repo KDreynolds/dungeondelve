@@ -313,6 +313,9 @@ public sealed class CombatUnit
     public int AbilityPower { get; }
     public int AbilityCooldown { get; }
     public int AbilityCooldownRemaining { get; set; }
+    public int InitiativeBonus { get; }
+    public int InitiativeRoll { get; set; }
+    public int InitiativeTieBreaker { get; set; }
     public bool HasMoved { get; set; }
     public bool HasActed { get; set; }
     public bool TurnEnded { get; set; }
@@ -332,7 +335,8 @@ public sealed class CombatUnit
         AbilityType ability,
         int abilityRange,
         int abilityPower,
-        int abilityCooldown)
+        int abilityCooldown,
+        int initiativeBonus)
     {
         Name = name;
         Team = team;
@@ -349,55 +353,88 @@ public sealed class CombatUnit
         AbilityPower = abilityPower;
         AbilityCooldown = abilityCooldown;
         AbilityCooldownRemaining = 0;
+        InitiativeBonus = initiativeBonus;
+        InitiativeRoll = 0;
+        InitiativeTieBreaker = 0;
     }
 }
 
 public sealed class CombatState
 {
+    private readonly Random _rng;
+    private readonly List<int> _turnOrder = new();
+    private int _turnOrderIndex;
+
     public List<CombatUnit> Units { get; } = new();
     public int? SelectedUnitIndex { get; private set; }
     public CombatUnit? SelectedUnit
         => SelectedUnitIndex.HasValue ? Units[SelectedUnitIndex.Value] : null;
-    public Team CurrentTeam { get; private set; } = Team.Hero;
+    public int CurrentUnitIndex { get; private set; } = -1;
+    public CombatUnit? CurrentUnit
+        => CurrentUnitIndex >= 0 && CurrentUnitIndex < Units.Count ? Units[CurrentUnitIndex] : null;
+    public IReadOnlyList<int> TurnOrder => _turnOrder;
+    public int TurnOrderPosition => _turnOrder.Count == 0 ? 0 : _turnOrderIndex + 1;
+    public int Round { get; private set; } = 1;
+    public int TurnId { get; private set; } = 0;
     public CombatActionMode ActionMode { get; private set; } = CombatActionMode.None;
     public HashSet<Point> MoveRange { get; } = new();
     public HashSet<Point> AttackRange { get; } = new();
     public HashSet<Point> AbilityRange { get; } = new();
+    public bool IsPlayerTurn => CurrentUnit?.Team == Team.Hero;
 
-    public static CombatState CreateDefault()
+    public CombatState(Random rng)
     {
-        var state = new CombatState();
+        _rng = rng;
+    }
+
+    public static CombatState CreateDefault(Random rng)
+    {
+        var state = new CombatState(rng);
         state.Units.Add(new CombatUnit(
             "Fighter", Team.Hero, new Point(1, 5), 3, false,
             maxHp: 12, attack: 5, defense: 3, range: 1,
-            ability: AbilityType.Cleave, abilityRange: 1, abilityPower: 4, abilityCooldown: 2));
+            ability: AbilityType.Cleave, abilityRange: 1, abilityPower: 4, abilityCooldown: 2,
+            initiativeBonus: 2));
         state.Units.Add(new CombatUnit(
             "Rogue", Team.Hero, new Point(2, 5), 4, true,
             maxHp: 9, attack: 4, defense: 2, range: 1,
-            ability: AbilityType.ThrowingKnife, abilityRange: 3, abilityPower: 3, abilityCooldown: 2));
+            ability: AbilityType.ThrowingKnife, abilityRange: 3, abilityPower: 3, abilityCooldown: 2,
+            initiativeBonus: 4));
         state.Units.Add(new CombatUnit(
             "Mage", Team.Hero, new Point(3, 5), 3, false,
             maxHp: 7, attack: 3, defense: 1, range: 2,
-            ability: AbilityType.ArcBolt, abilityRange: 4, abilityPower: 4, abilityCooldown: 2));
+            ability: AbilityType.ArcBolt, abilityRange: 4, abilityPower: 4, abilityCooldown: 2,
+            initiativeBonus: 1));
         state.Units.Add(new CombatUnit(
             "Cleric", Team.Hero, new Point(4, 5), 3, false,
             maxHp: 10, attack: 3, defense: 2, range: 1,
-            ability: AbilityType.Heal, abilityRange: 3, abilityPower: 4, abilityCooldown: 2));
+            ability: AbilityType.Heal, abilityRange: 3, abilityPower: 4, abilityCooldown: 2,
+            initiativeBonus: 1));
 
         state.Units.Add(new CombatUnit(
             "Goblin", Team.Enemy, new Point(2, 1), 3, false,
             maxHp: 6, attack: 3, defense: 1, range: 1,
-            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0));
+            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0,
+            initiativeBonus: 2));
         state.Units.Add(new CombatUnit(
             "Raider", Team.Enemy, new Point(5, 2), 3, false,
             maxHp: 8, attack: 4, defense: 2, range: 1,
-            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0));
+            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0,
+            initiativeBonus: 1));
         state.Units.Add(new CombatUnit(
             "Wolf", Team.Enemy, new Point(4, 1), 4, false,
             maxHp: 7, attack: 4, defense: 1, range: 1,
-            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0));
-        state.ResetTeam(Team.Hero);
+            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0,
+            initiativeBonus: 3));
+        state.StartCombat();
         return state;
+    }
+
+    public void StartCombat()
+    {
+        Round = 1;
+        RollInitiative();
+        StartTurnAtPosition(0);
     }
 
     public int CountAlive(Team team)
@@ -428,18 +465,18 @@ public sealed class CombatState
 
     public bool TrySelectUnit(Point gridPos, CombatGrid grid)
     {
-        if (CurrentTeam != Team.Hero)
+        if (!IsPlayerTurn)
         {
             return false;
         }
 
         var unitAt = GetUnitAt(gridPos);
-        if (unitAt == null || unitAt.Team != Team.Hero || unitAt.TurnEnded)
+        if (unitAt == null || CurrentUnitIndex < 0 || Units[CurrentUnitIndex] != unitAt)
         {
             return false;
         }
 
-        SelectedUnitIndex = Units.IndexOf(unitAt);
+        SelectedUnitIndex = CurrentUnitIndex;
         SetActionMode(CombatActionMode.Move, grid);
         return true;
     }
@@ -449,7 +486,7 @@ public sealed class CombatState
         ActionMode = CombatActionMode.None;
         ClearRanges();
 
-        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        if (!SelectedUnitIndex.HasValue || !IsPlayerTurn || SelectedUnitIndex.Value != CurrentUnitIndex)
         {
             return;
         }
@@ -499,7 +536,7 @@ public sealed class CombatState
 
     public bool TryMoveSelected(Point gridPos, CombatGrid grid)
     {
-        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        if (!SelectedUnitIndex.HasValue || !IsPlayerTurn || SelectedUnitIndex.Value != CurrentUnitIndex)
         {
             return false;
         }
@@ -524,7 +561,7 @@ public sealed class CombatState
 
     public bool TryAttackSelected(Point gridPos, CombatGrid grid)
     {
-        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        if (!SelectedUnitIndex.HasValue || !IsPlayerTurn || SelectedUnitIndex.Value != CurrentUnitIndex)
         {
             return false;
         }
@@ -555,7 +592,7 @@ public sealed class CombatState
 
     public bool TryAbilitySelected(Point gridPos, CombatGrid grid)
     {
-        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        if (!SelectedUnitIndex.HasValue || !IsPlayerTurn || SelectedUnitIndex.Value != CurrentUnitIndex)
         {
             return false;
         }
@@ -590,7 +627,7 @@ public sealed class CombatState
 
     public bool TryGuardSelected(CombatGrid grid)
     {
-        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        if (!SelectedUnitIndex.HasValue || !IsPlayerTurn || SelectedUnitIndex.Value != CurrentUnitIndex)
         {
             return false;
         }
@@ -608,83 +645,70 @@ public sealed class CombatState
         return true;
     }
 
-    public void EndSelectedTurn(CombatGrid grid)
+    public void EndCurrentTurn(CombatGrid grid)
     {
-        if (!SelectedUnitIndex.HasValue)
+        if (CurrentUnitIndex < 0)
         {
             return;
         }
 
-        var unit = Units[SelectedUnitIndex.Value];
+        var unit = Units[CurrentUnitIndex];
         if (!unit.IsAlive)
         {
-            SelectedUnitIndex = null;
-            ClearActionMode();
+            AdvanceTurn(grid);
             return;
         }
 
         unit.TurnEnded = true;
         SelectedUnitIndex = null;
         ClearActionMode();
-        TryStartEnemyTurnIfReady(grid);
+        AdvanceTurn(grid);
     }
 
-    public void ForceEndPlayerRound(CombatGrid grid)
+    public void ExecuteEnemyTurn(CombatGrid grid)
     {
-        foreach (var unit in Units)
+        if (CurrentUnitIndex < 0)
         {
-            if (unit.Team == Team.Hero && unit.IsAlive)
-            {
-                unit.TurnEnded = true;
-            }
+            return;
         }
 
-        SelectedUnitIndex = null;
-        ClearActionMode();
-        ExecuteEnemyTurn(grid);
-    }
-
-    private void ExecuteEnemyTurn(CombatGrid grid)
-    {
-        BeginEnemyRound();
-
-        foreach (var unit in Units)
+        var unit = Units[CurrentUnitIndex];
+        if (unit.Team != Team.Enemy || !unit.IsAlive)
         {
-            if (unit.Team != Team.Enemy || !unit.IsAlive)
-            {
-                continue;
-            }
-
-            var target = FindNearestHero(unit.Position);
-            if (target == null)
-            {
-                continue;
-            }
-
-            for (int step = 0; step < unit.MoveRange; step++)
-            {
-                if (IsInRange(unit.Position, target.Position, unit.Range))
-                {
-                    break;
-                }
-
-                var nextStep = StepToward(unit.Position, target.Position, grid);
-                if (!nextStep.HasValue)
-                {
-                    break;
-                }
-
-                unit.Position = nextStep.Value;
-            }
-
-            var attackTarget = FindHeroInRange(unit.Position, unit.Range);
-            if (attackTarget != null)
-            {
-                ResolveAttack(unit, attackTarget, unit.Attack);
-            }
+            AdvanceTurn(grid);
+            return;
         }
 
-        BeginPlayerRound(grid);
+        var target = FindNearestHero(unit.Position);
+        if (target == null)
+        {
+            AdvanceTurn(grid);
+            return;
+        }
+
+        for (int step = 0; step < unit.MoveRange; step++)
+        {
+            if (IsInRange(unit.Position, target.Position, unit.Range))
+            {
+                break;
+            }
+
+            var nextStep = StepToward(unit.Position, target.Position, grid);
+            if (!nextStep.HasValue)
+            {
+                break;
+            }
+
+            unit.Position = nextStep.Value;
+        }
+
+        var attackTarget = FindHeroInRange(unit.Position, unit.Range);
+        if (attackTarget != null)
+        {
+            ResolveAttack(unit, attackTarget, unit.Attack);
+        }
+
+        EndCurrentTurn(grid);
     }
 
     private CombatUnit? FindNearestHero(Point from)
@@ -884,65 +908,7 @@ public sealed class CombatState
     {
         if (unit.HasMoved && unit.HasActed)
         {
-            unit.TurnEnded = true;
-            SelectedUnitIndex = null;
-            ClearActionMode();
-            TryStartEnemyTurnIfReady(grid);
-        }
-    }
-
-    private void TryStartEnemyTurnIfReady(CombatGrid grid)
-    {
-        if (CurrentTeam != Team.Hero)
-        {
-            return;
-        }
-
-        foreach (var unit in Units)
-        {
-            if (unit.Team == Team.Hero && unit.IsAlive && !unit.TurnEnded)
-            {
-                return;
-            }
-        }
-
-        ExecuteEnemyTurn(grid);
-    }
-
-    private void BeginPlayerRound(CombatGrid grid)
-    {
-        CurrentTeam = Team.Hero;
-        ResetTeam(Team.Hero);
-        SelectedUnitIndex = null;
-        ClearActionMode();
-    }
-
-    private void BeginEnemyRound()
-    {
-        CurrentTeam = Team.Enemy;
-        ResetTeam(Team.Enemy);
-        SelectedUnitIndex = null;
-        ClearActionMode();
-    }
-
-    private void ResetTeam(Team team)
-    {
-        foreach (var unit in Units)
-        {
-            if (unit.Team != team || !unit.IsAlive)
-            {
-                continue;
-            }
-
-            unit.HasMoved = false;
-            unit.HasActed = false;
-            unit.TurnEnded = false;
-            unit.IsGuarding = false;
-
-            if (unit.AbilityCooldownRemaining > 0)
-            {
-                unit.AbilityCooldownRemaining--;
-            }
+            EndCurrentTurn(grid);
         }
     }
 
@@ -1017,6 +983,126 @@ public sealed class CombatState
 
     private static bool IsInRange(Point a, Point b, int range)
         => Math.Abs(a.X - b.X) + Math.Abs(a.Y - b.Y) <= range;
+
+    private void RollInitiative()
+    {
+        _turnOrder.Clear();
+        var entries = new List<(int Index, int Roll, int InitiativeBonus, int Tie)>();
+
+        for (int i = 0; i < Units.Count; i++)
+        {
+            var unit = Units[i];
+            if (!unit.IsAlive)
+            {
+                continue;
+            }
+
+            unit.InitiativeRoll = _rng.Next(1, 21) + unit.InitiativeBonus;
+            unit.InitiativeTieBreaker = _rng.Next();
+            entries.Add((i, unit.InitiativeRoll, unit.InitiativeBonus, unit.InitiativeTieBreaker));
+        }
+
+        entries.Sort((a, b) =>
+        {
+            int rollCompare = b.Roll.CompareTo(a.Roll);
+            if (rollCompare != 0)
+            {
+                return rollCompare;
+            }
+
+            int initCompare = b.InitiativeBonus.CompareTo(a.InitiativeBonus);
+            if (initCompare != 0)
+            {
+                return initCompare;
+            }
+
+            return b.Tie.CompareTo(a.Tie);
+        });
+
+        foreach (var entry in entries)
+        {
+            _turnOrder.Add(entry.Index);
+        }
+
+        _turnOrderIndex = 0;
+    }
+
+    private void StartTurnAtPosition(int orderPosition)
+    {
+        if (_turnOrder.Count == 0)
+        {
+            CurrentUnitIndex = -1;
+            SelectedUnitIndex = null;
+            ClearActionMode();
+            return;
+        }
+
+        _turnOrderIndex = Math.Clamp(orderPosition, 0, _turnOrder.Count - 1);
+        CurrentUnitIndex = _turnOrder[_turnOrderIndex];
+        BeginTurnForCurrentUnit();
+    }
+
+    private void BeginTurnForCurrentUnit()
+    {
+        TurnId++;
+        ClearActionMode();
+
+        var unit = CurrentUnit;
+        if (unit == null || !unit.IsAlive)
+        {
+            return;
+        }
+
+        unit.HasMoved = false;
+        unit.HasActed = false;
+        unit.TurnEnded = false;
+        unit.IsGuarding = false;
+
+        if (unit.AbilityCooldownRemaining > 0)
+        {
+            unit.AbilityCooldownRemaining--;
+        }
+
+        SelectedUnitIndex = unit.Team == Team.Hero ? CurrentUnitIndex : null;
+    }
+
+    private void AdvanceTurn(CombatGrid grid)
+    {
+        if (_turnOrder.Count == 0)
+        {
+            return;
+        }
+
+        int nextPosition = FindNextAlivePosition(_turnOrderIndex + 1);
+        if (nextPosition == -1)
+        {
+            Round++;
+            nextPosition = FindNextAlivePosition(0);
+            if (nextPosition == -1)
+            {
+                CurrentUnitIndex = -1;
+                SelectedUnitIndex = null;
+                ClearActionMode();
+                return;
+            }
+        }
+
+        StartTurnAtPosition(nextPosition);
+    }
+
+    private int FindNextAlivePosition(int start)
+    {
+        for (int i = start; i < _turnOrder.Count; i++)
+        {
+            int unitIndex = _turnOrder[i];
+            if (unitIndex >= 0 && unitIndex < Units.Count && Units[unitIndex].IsAlive)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
 }
 
 public sealed class InputState

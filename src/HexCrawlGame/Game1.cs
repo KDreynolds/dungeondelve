@@ -51,7 +51,7 @@ public sealed class Game1 : Game
         _hexMap.UpdateVisibility(_partyPos, 2);
 
         _combatGrid = new CombatGrid(8, 8);
-        _combatState = CombatState.CreateDefault();
+        _combatState = CombatState.CreateDefault(rng);
 
         _overworldOrigin = new Vector2(_graphics.PreferredBackBufferWidth / 2f, 80f);
         _combatOrigin = new Vector2(_graphics.PreferredBackBufferWidth / 2f, 80f);
@@ -145,6 +145,12 @@ public sealed class Game1 : Game
 
     private void UpdateCombat()
     {
+        if (!_combatState.IsPlayerTurn)
+        {
+            _combatState.ExecuteEnemyTurn(_combatGrid);
+            return;
+        }
+
         if (_input.IsNewKeyPress(Keys.M))
         {
             _combatState.SetActionMode(CombatActionMode.Move, _combatGrid);
@@ -163,7 +169,7 @@ public sealed class Game1 : Game
         }
         if (_input.IsNewKeyPress(Keys.E))
         {
-            _combatState.EndSelectedTurn(_combatGrid);
+            _combatState.EndCurrentTurn(_combatGrid);
         }
         if (_input.IsLeftClick())
         {
@@ -198,7 +204,7 @@ public sealed class Game1 : Game
 
         if (_input.IsNewKeyPress(Keys.Space))
         {
-            _combatState.ForceEndPlayerRound(_combatGrid);
+            _combatState.EndCurrentTurn(_combatGrid);
         }
     }
 
@@ -337,7 +343,7 @@ public sealed class Game1 : Game
         string statusText = BuildCombatStatusText();
         DrawHudPanel(new Vector2(16, 16), statusText, new Color(225, 225, 235), scale, padding);
 
-        string controlsText = "CONTROLS:\nM MOVE  A ATTACK\nB ABILITY  G GUARD\nE END TURN  SPACE END";
+        string controlsText = "CONTROLS:\nM MOVE  A ATTACK\nB ABILITY  G GUARD\nE END TURN  SPACE END\nRIGHT CLICK CANCEL";
         var controlSize = _font.MeasureString(controlsText, scale);
         var controlsPos = new Vector2(
             16,
@@ -359,40 +365,86 @@ public sealed class Game1 : Game
 
     private string BuildCombatStatusText()
     {
-        string turnLine = _combatState.CurrentTeam == Team.Hero ? "PLAYER TURN" : "ENEMY TURN";
+        var current = _combatState.CurrentUnit;
+        string roundLine = $"ROUND: {_combatState.Round}";
+        string turnLine = current == null
+            ? "TURN: NONE"
+            : $"{(current.Team == Team.Hero ? "HERO" : "ENEMY")} TURN: {current.Name.ToUpperInvariant()}";
         string modeLine = $"MODE: {GetModeLabel(_combatState.ActionMode)}";
+        string orderLine = BuildTurnOrderLine(5);
         int heroes = _combatState.CountAlive(Team.Hero);
         int enemies = _combatState.CountAlive(Team.Enemy);
         string countLine = $"HEROES: {heroes}  ENEMIES: {enemies}";
 
-        var unit = _combatState.SelectedUnit;
+        var unit = _combatState.SelectedUnit ?? current;
         if (unit == null)
         {
             return string.Join('\n', new[]
             {
+                roundLine,
                 turnLine,
                 modeLine,
+                orderLine,
                 countLine,
-                "UNIT: NONE",
-                "CLICK A HERO TO SELECT"
+                "UNIT: NONE"
             });
         }
 
         string unitLine = $"UNIT: {unit.Name.ToUpperInvariant()}  HP {unit.Hp}/{unit.MaxHp}";
+        string initLine = $"INIT: {unit.InitiativeRoll}  BONUS: {unit.InitiativeBonus}";
         string moveLine = $"MOVE: {(unit.HasMoved ? "DONE" : "READY")}  ACT: {(unit.HasActed ? "DONE" : "READY")}";
         string abilityLine = BuildAbilityLine(unit);
         string guardLine = unit.IsGuarding ? "STATUS: GUARDING" : "STATUS: NORMAL";
 
         return string.Join('\n', new[]
         {
+            roundLine,
             turnLine,
             modeLine,
+            orderLine,
             countLine,
             unitLine,
+            initLine,
             moveLine,
             abilityLine,
             guardLine
         });
+    }
+
+    private string BuildTurnOrderLine(int maxCount)
+    {
+        if (_combatState.TurnOrder.Count == 0 || maxCount <= 0)
+        {
+            return "ORDER: NONE";
+        }
+
+        var names = new List<string>();
+        int start = Math.Clamp(_combatState.TurnOrderPosition - 1, 0, _combatState.TurnOrder.Count - 1);
+        int index = start;
+        int visited = 0;
+
+        while (names.Count < maxCount && visited < _combatState.TurnOrder.Count)
+        {
+            int unitIndex = _combatState.TurnOrder[index];
+            if (unitIndex >= 0 && unitIndex < _combatState.Units.Count)
+            {
+                var unit = _combatState.Units[unitIndex];
+                if (unit.IsAlive)
+                {
+                    string name = unit.Name.ToUpperInvariant();
+                    if (unitIndex == _combatState.CurrentUnitIndex)
+                    {
+                        name = $"*{name}";
+                    }
+                    names.Add(name);
+                }
+            }
+
+            index = (index + 1) % _combatState.TurnOrder.Count;
+            visited++;
+        }
+
+        return names.Count == 0 ? "ORDER: NONE" : $"ORDER: {string.Join(" > ", names)}";
     }
 
     private string BuildAbilityLine(CombatUnit unit)
