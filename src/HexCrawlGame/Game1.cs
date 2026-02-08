@@ -30,6 +30,7 @@ public sealed class Game1 : Game
     private Texture2D _isoTileTexture = null!;
 
     private Texture2D _pixel = null!;
+    private readonly PixelFont _font = new();
 
     public Game1()
     {
@@ -324,6 +325,112 @@ public sealed class Game1 : Game
 
             DrawHealthBar(center, unit);
         }
+
+        DrawCombatHud();
+    }
+
+    private void DrawCombatHud()
+    {
+        const int scale = 2;
+        const int padding = 8;
+
+        string statusText = BuildCombatStatusText();
+        DrawHudPanel(new Vector2(16, 16), statusText, new Color(225, 225, 235), scale, padding);
+
+        string controlsText = "CONTROLS:\nM MOVE  A ATTACK\nB ABILITY  G GUARD\nE END TURN  SPACE END";
+        var controlSize = _font.MeasureString(controlsText, scale);
+        var controlsPos = new Vector2(
+            16,
+            _graphics.PreferredBackBufferHeight - 16 - controlSize.Y);
+        DrawHudPanel(controlsPos, controlsText, new Color(210, 210, 220), scale, padding);
+    }
+
+    private void DrawHudPanel(Vector2 position, string text, Color textColor, int scale, int padding)
+    {
+        var size = _font.MeasureString(text, scale);
+        var rect = new Rectangle(
+            (int)position.X - padding,
+            (int)position.Y - padding,
+            size.X + padding * 2,
+            size.Y + padding * 2);
+        _spriteBatch.Draw(_pixel, rect, new Color(8, 8, 12, 200));
+        _font.DrawString(_spriteBatch, _pixel, text, position, textColor, scale);
+    }
+
+    private string BuildCombatStatusText()
+    {
+        string turnLine = _combatState.CurrentTeam == Team.Hero ? "PLAYER TURN" : "ENEMY TURN";
+        string modeLine = $"MODE: {GetModeLabel(_combatState.ActionMode)}";
+        int heroes = _combatState.CountAlive(Team.Hero);
+        int enemies = _combatState.CountAlive(Team.Enemy);
+        string countLine = $"HEROES: {heroes}  ENEMIES: {enemies}";
+
+        var unit = _combatState.SelectedUnit;
+        if (unit == null)
+        {
+            return string.Join('\n', new[]
+            {
+                turnLine,
+                modeLine,
+                countLine,
+                "UNIT: NONE",
+                "CLICK A HERO TO SELECT"
+            });
+        }
+
+        string unitLine = $"UNIT: {unit.Name.ToUpperInvariant()}  HP {unit.Hp}/{unit.MaxHp}";
+        string moveLine = $"MOVE: {(unit.HasMoved ? "DONE" : "READY")}  ACT: {(unit.HasActed ? "DONE" : "READY")}";
+        string abilityLine = BuildAbilityLine(unit);
+        string guardLine = unit.IsGuarding ? "STATUS: GUARDING" : "STATUS: NORMAL";
+
+        return string.Join('\n', new[]
+        {
+            turnLine,
+            modeLine,
+            countLine,
+            unitLine,
+            moveLine,
+            abilityLine,
+            guardLine
+        });
+    }
+
+    private string BuildAbilityLine(CombatUnit unit)
+    {
+        if (unit.Ability == AbilityType.None)
+        {
+            return "ABILITY: NONE";
+        }
+
+        string label = GetAbilityLabel(unit.Ability);
+        string status = unit.AbilityCooldownRemaining > 0
+            ? $"CD {unit.AbilityCooldownRemaining}"
+            : "READY";
+
+        return $"ABILITY: {label} {status}";
+    }
+
+    private string GetModeLabel(CombatActionMode mode)
+    {
+        return mode switch
+        {
+            CombatActionMode.Move => "MOVE",
+            CombatActionMode.Attack => "ATTACK",
+            CombatActionMode.Ability => "ABILITY",
+            _ => "NONE"
+        };
+    }
+
+    private string GetAbilityLabel(AbilityType ability)
+    {
+        return ability switch
+        {
+            AbilityType.Cleave => "CLEAVE",
+            AbilityType.ThrowingKnife => "THROWING KNIFE",
+            AbilityType.ArcBolt => "ARC BOLT",
+            AbilityType.Heal => "HEAL",
+            _ => "NONE"
+        };
     }
 
     private void DrawHealthBar(Vector2 center, CombatUnit unit)

@@ -400,6 +400,20 @@ public sealed class CombatState
         return state;
     }
 
+    public int CountAlive(Team team)
+    {
+        int count = 0;
+        foreach (var unit in Units)
+        {
+            if (unit.Team == team && unit.IsAlive)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
     public CombatUnit? GetUnitAt(Point point)
     {
         foreach (var unit in Units)
