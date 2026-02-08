@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -143,6 +144,26 @@ public sealed class Game1 : Game
 
     private void UpdateCombat()
     {
+        if (_input.IsNewKeyPress(Keys.M))
+        {
+            _combatState.SetActionMode(CombatActionMode.Move, _combatGrid);
+        }
+        if (_input.IsNewKeyPress(Keys.A))
+        {
+            _combatState.SetActionMode(CombatActionMode.Attack, _combatGrid);
+        }
+        if (_input.IsNewKeyPress(Keys.B))
+        {
+            _combatState.SetActionMode(CombatActionMode.Ability, _combatGrid);
+        }
+        if (_input.IsNewKeyPress(Keys.G))
+        {
+            _combatState.TryGuardSelected(_combatGrid);
+        }
+        if (_input.IsNewKeyPress(Keys.E))
+        {
+            _combatState.EndSelectedTurn(_combatGrid);
+        }
         if (_input.IsLeftClick())
         {
             var screen = new Vector2(_input.MousePosition.X, _input.MousePosition.Y);
@@ -151,13 +172,32 @@ public sealed class Game1 : Game
 
             if (_combatGrid.InBounds(gridPos))
             {
-                _combatState.SelectOrMove(gridPos, _combatGrid);
+                if (!_combatState.TrySelectUnit(gridPos, _combatGrid))
+                {
+                    switch (_combatState.ActionMode)
+                    {
+                        case CombatActionMode.Move:
+                            _combatState.TryMoveSelected(gridPos, _combatGrid);
+                            break;
+                        case CombatActionMode.Attack:
+                            _combatState.TryAttackSelected(gridPos, _combatGrid);
+                            break;
+                        case CombatActionMode.Ability:
+                            _combatState.TryAbilitySelected(gridPos, _combatGrid);
+                            break;
+                    }
+                }
             }
+        }
+
+        if (_input.IsRightClick())
+        {
+            _combatState.ClearActionMode();
         }
 
         if (_input.IsNewKeyPress(Keys.Space))
         {
-            _combatState.RunEnemyTurn(_combatGrid);
+            _combatState.ForceEndPlayerRound(_combatGrid);
         }
     }
 
@@ -221,6 +261,25 @@ public sealed class Game1 : Game
 
     private void DrawCombat()
     {
+        HashSet<Point>? highlight = null;
+        Color highlightColor = new(65, 90, 130);
+
+        switch (_combatState.ActionMode)
+        {
+            case CombatActionMode.Move:
+                highlight = _combatState.MoveRange;
+                highlightColor = new Color(65, 90, 130);
+                break;
+            case CombatActionMode.Attack:
+                highlight = _combatState.AttackRange;
+                highlightColor = new Color(140, 70, 70);
+                break;
+            case CombatActionMode.Ability:
+                highlight = _combatState.AbilityRange;
+                highlightColor = new Color(70, 120, 120);
+                break;
+        }
+
         for (int y = 0; y < _combatGrid.Height; y++)
         {
             for (int x = 0; x < _combatGrid.Width; x++)
@@ -230,24 +289,60 @@ public sealed class Game1 : Game
                     + _combatOrigin + _combatCamera;
                 Color color = new Color(40, 40, 50);
 
-                if (_combatState.Reachable.Contains(gridPos))
+                if (highlight != null && highlight.Contains(gridPos))
                 {
-                    color = new Color(65, 90, 130);
+                    color = highlightColor;
                 }
 
                 _spriteBatch.Draw(_isoTileTexture, tilePos, color);
+
+                if (_combatState.SelectedUnit?.Position == gridPos)
+                {
+                    _spriteBatch.Draw(_isoTileTexture, tilePos, new Color(120, 120, 160) * 0.35f);
+                }
             }
         }
 
         foreach (var unit in _combatState.Units)
         {
+            if (!unit.IsAlive)
+            {
+                continue;
+            }
+
             var tilePos = IsoMath.GridToScreen(unit.Position, _isoTileWidth, _isoTileHeight)
                 + _combatOrigin + _combatCamera;
             var center = tilePos + new Vector2(_isoTileWidth / 2f, _isoTileHeight / 2f);
 
             var rect = new Rectangle((int)center.X - 6, (int)center.Y - 14, 12, 20);
             Color color = unit.Team == Team.Hero ? new Color(90, 200, 120) : new Color(200, 90, 90);
+            if (unit.IsGuarding)
+            {
+                color = new Color(120, 180, 220);
+            }
             _spriteBatch.Draw(_pixel, rect, color);
+
+            DrawHealthBar(center, unit);
+        }
+    }
+
+    private void DrawHealthBar(Vector2 center, CombatUnit unit)
+    {
+        const int barWidth = 24;
+        const int barHeight = 4;
+        float ratio = unit.MaxHp > 0 ? unit.Hp / (float)unit.MaxHp : 0f;
+
+        int x = (int)center.X - barWidth / 2;
+        int y = (int)center.Y - 24;
+        var backRect = new Rectangle(x, y, barWidth, barHeight);
+        _spriteBatch.Draw(_pixel, backRect, new Color(15, 15, 18));
+
+        int fillWidth = (int)MathF.Round(barWidth * Math.Clamp(ratio, 0f, 1f));
+        if (fillWidth > 0)
+        {
+            var fillRect = new Rectangle(x, y, fillWidth, barHeight);
+            Color fillColor = unit.Team == Team.Hero ? new Color(70, 200, 90) : new Color(200, 80, 80);
+            _spriteBatch.Draw(_pixel, fillRect, fillColor);
         }
     }
 

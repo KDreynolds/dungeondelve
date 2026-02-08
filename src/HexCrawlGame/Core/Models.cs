@@ -24,6 +24,23 @@ public enum Team
     Enemy
 }
 
+public enum CombatActionMode
+{
+    None,
+    Move,
+    Attack,
+    Ability
+}
+
+public enum AbilityType
+{
+    None,
+    Cleave,
+    ThrowingKnife,
+    ArcBolt,
+    Heal
+}
+
 public readonly struct HexCoord : IEquatable<HexCoord>
 {
     public int Q { get; }
@@ -286,14 +303,52 @@ public sealed class CombatUnit
     public Point Position { get; set; }
     public int MoveRange { get; }
     public bool HasDiagonalMove { get; }
+    public int MaxHp { get; }
+    public int Hp { get; set; }
+    public int Attack { get; }
+    public int Defense { get; }
+    public int Range { get; }
+    public AbilityType Ability { get; }
+    public int AbilityRange { get; }
+    public int AbilityPower { get; }
+    public int AbilityCooldown { get; }
+    public int AbilityCooldownRemaining { get; set; }
+    public bool HasMoved { get; set; }
+    public bool HasActed { get; set; }
+    public bool TurnEnded { get; set; }
+    public bool IsGuarding { get; set; }
+    public bool IsAlive => Hp > 0;
 
-    public CombatUnit(string name, Team team, Point position, int moveRange, bool hasDiagonalMove)
+    public CombatUnit(
+        string name,
+        Team team,
+        Point position,
+        int moveRange,
+        bool hasDiagonalMove,
+        int maxHp,
+        int attack,
+        int defense,
+        int range,
+        AbilityType ability,
+        int abilityRange,
+        int abilityPower,
+        int abilityCooldown)
     {
         Name = name;
         Team = team;
         Position = position;
         MoveRange = moveRange;
         HasDiagonalMove = hasDiagonalMove;
+        MaxHp = maxHp;
+        Hp = maxHp;
+        Attack = attack;
+        Defense = defense;
+        Range = range;
+        Ability = ability;
+        AbilityRange = abilityRange;
+        AbilityPower = abilityPower;
+        AbilityCooldown = abilityCooldown;
+        AbilityCooldownRemaining = 0;
     }
 }
 
@@ -301,19 +356,47 @@ public sealed class CombatState
 {
     public List<CombatUnit> Units { get; } = new();
     public int? SelectedUnitIndex { get; private set; }
-    public HashSet<Point> Reachable { get; } = new();
+    public CombatUnit? SelectedUnit
+        => SelectedUnitIndex.HasValue ? Units[SelectedUnitIndex.Value] : null;
+    public Team CurrentTeam { get; private set; } = Team.Hero;
+    public CombatActionMode ActionMode { get; private set; } = CombatActionMode.None;
+    public HashSet<Point> MoveRange { get; } = new();
+    public HashSet<Point> AttackRange { get; } = new();
+    public HashSet<Point> AbilityRange { get; } = new();
 
     public static CombatState CreateDefault()
     {
         var state = new CombatState();
-        state.Units.Add(new CombatUnit("Fighter", Team.Hero, new Point(1, 5), 3, false));
-        state.Units.Add(new CombatUnit("Rogue", Team.Hero, new Point(2, 5), 4, true));
-        state.Units.Add(new CombatUnit("Mage", Team.Hero, new Point(3, 5), 3, false));
-        state.Units.Add(new CombatUnit("Cleric", Team.Hero, new Point(4, 5), 3, false));
+        state.Units.Add(new CombatUnit(
+            "Fighter", Team.Hero, new Point(1, 5), 3, false,
+            maxHp: 12, attack: 5, defense: 3, range: 1,
+            ability: AbilityType.Cleave, abilityRange: 1, abilityPower: 4, abilityCooldown: 2));
+        state.Units.Add(new CombatUnit(
+            "Rogue", Team.Hero, new Point(2, 5), 4, true,
+            maxHp: 9, attack: 4, defense: 2, range: 1,
+            ability: AbilityType.ThrowingKnife, abilityRange: 3, abilityPower: 3, abilityCooldown: 2));
+        state.Units.Add(new CombatUnit(
+            "Mage", Team.Hero, new Point(3, 5), 3, false,
+            maxHp: 7, attack: 3, defense: 1, range: 2,
+            ability: AbilityType.ArcBolt, abilityRange: 4, abilityPower: 4, abilityCooldown: 2));
+        state.Units.Add(new CombatUnit(
+            "Cleric", Team.Hero, new Point(4, 5), 3, false,
+            maxHp: 10, attack: 3, defense: 2, range: 1,
+            ability: AbilityType.Heal, abilityRange: 3, abilityPower: 4, abilityCooldown: 2));
 
-        state.Units.Add(new CombatUnit("Goblin", Team.Enemy, new Point(2, 1), 3, false));
-        state.Units.Add(new CombatUnit("Raider", Team.Enemy, new Point(5, 2), 3, false));
-        state.Units.Add(new CombatUnit("Wolf", Team.Enemy, new Point(4, 1), 4, false));
+        state.Units.Add(new CombatUnit(
+            "Goblin", Team.Enemy, new Point(2, 1), 3, false,
+            maxHp: 6, attack: 3, defense: 1, range: 1,
+            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0));
+        state.Units.Add(new CombatUnit(
+            "Raider", Team.Enemy, new Point(5, 2), 3, false,
+            maxHp: 8, attack: 4, defense: 2, range: 1,
+            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0));
+        state.Units.Add(new CombatUnit(
+            "Wolf", Team.Enemy, new Point(4, 1), 4, false,
+            maxHp: 7, attack: 4, defense: 1, range: 1,
+            ability: AbilityType.None, abilityRange: 0, abilityPower: 0, abilityCooldown: 0));
+        state.ResetTeam(Team.Hero);
         return state;
     }
 
@@ -321,7 +404,7 @@ public sealed class CombatState
     {
         foreach (var unit in Units)
         {
-            if (unit.Position == point)
+            if (unit.IsAlive && unit.Position == point)
             {
                 return unit;
             }
@@ -329,31 +412,231 @@ public sealed class CombatState
         return null;
     }
 
-    public bool SelectOrMove(Point gridPos, CombatGrid grid)
+    public bool TrySelectUnit(Point gridPos, CombatGrid grid)
     {
-        var unitAt = GetUnitAt(gridPos);
-        if (unitAt != null && unitAt.Team == Team.Hero)
+        if (CurrentTeam != Team.Hero)
         {
-            SelectedUnitIndex = Units.IndexOf(unitAt);
-            RecalculateReachable(grid);
-            return true;
+            return false;
         }
 
-        if (SelectedUnitIndex.HasValue && Reachable.Contains(gridPos) && !IsOccupied(gridPos))
+        var unitAt = GetUnitAt(gridPos);
+        if (unitAt == null || unitAt.Team != Team.Hero || unitAt.TurnEnded)
         {
-            Units[SelectedUnitIndex.Value].Position = gridPos;
-            RecalculateReachable(grid);
+            return false;
+        }
+
+        SelectedUnitIndex = Units.IndexOf(unitAt);
+        SetActionMode(CombatActionMode.Move, grid);
+        return true;
+    }
+
+    public void SetActionMode(CombatActionMode mode, CombatGrid grid)
+    {
+        ActionMode = CombatActionMode.None;
+        ClearRanges();
+
+        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        {
+            return;
+        }
+
+        var unit = Units[SelectedUnitIndex.Value];
+        if (!unit.IsAlive || unit.TurnEnded)
+        {
+            return;
+        }
+
+        switch (mode)
+        {
+            case CombatActionMode.Move:
+                if (unit.HasMoved)
+                {
+                    return;
+                }
+                ActionMode = mode;
+                RecalculateMoveRange(grid);
+                break;
+            case CombatActionMode.Attack:
+                if (unit.HasActed)
+                {
+                    return;
+                }
+                ActionMode = mode;
+                RecalculateAttackRange(grid);
+                break;
+            case CombatActionMode.Ability:
+                if (unit.HasActed || unit.Ability == AbilityType.None || unit.AbilityCooldownRemaining > 0)
+                {
+                    return;
+                }
+                ActionMode = mode;
+                RecalculateAbilityRange(grid);
+                break;
+            default:
+                break;
+        }
+    }
+
+    public void ClearActionMode()
+    {
+        ActionMode = CombatActionMode.None;
+        ClearRanges();
+    }
+
+    public bool TryMoveSelected(Point gridPos, CombatGrid grid)
+    {
+        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        {
+            return false;
+        }
+
+        var unit = Units[SelectedUnitIndex.Value];
+        if (unit.HasMoved || unit.TurnEnded || !unit.IsAlive)
+        {
+            return false;
+        }
+
+        if (MoveRange.Contains(gridPos) && !IsOccupied(gridPos))
+        {
+            unit.Position = gridPos;
+            unit.HasMoved = true;
+            ClearActionMode();
+            MaybeAutoEndTurn(unit, grid);
             return true;
         }
 
         return false;
     }
 
-    public void RunEnemyTurn(CombatGrid grid)
+    public bool TryAttackSelected(Point gridPos, CombatGrid grid)
+    {
+        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        {
+            return false;
+        }
+
+        var unit = Units[SelectedUnitIndex.Value];
+        if (unit.HasActed || unit.TurnEnded || !unit.IsAlive)
+        {
+            return false;
+        }
+
+        if (!AttackRange.Contains(gridPos))
+        {
+            return false;
+        }
+
+        var target = GetUnitAt(gridPos);
+        if (target == null || target.Team == Team.Hero)
+        {
+            return false;
+        }
+
+        ResolveAttack(unit, target, unit.Attack);
+        unit.HasActed = true;
+        ClearActionMode();
+        MaybeAutoEndTurn(unit, grid);
+        return true;
+    }
+
+    public bool TryAbilitySelected(Point gridPos, CombatGrid grid)
+    {
+        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        {
+            return false;
+        }
+
+        var unit = Units[SelectedUnitIndex.Value];
+        if (unit.HasActed || unit.TurnEnded || !unit.IsAlive)
+        {
+            return false;
+        }
+
+        if (unit.Ability == AbilityType.None || unit.AbilityCooldownRemaining > 0)
+        {
+            return false;
+        }
+
+        if (!AbilityRange.Contains(gridPos))
+        {
+            return false;
+        }
+
+        if (!ResolveAbility(unit, gridPos))
+        {
+            return false;
+        }
+
+        unit.HasActed = true;
+        unit.AbilityCooldownRemaining = unit.AbilityCooldown;
+        ClearActionMode();
+        MaybeAutoEndTurn(unit, grid);
+        return true;
+    }
+
+    public bool TryGuardSelected(CombatGrid grid)
+    {
+        if (!SelectedUnitIndex.HasValue || CurrentTeam != Team.Hero)
+        {
+            return false;
+        }
+
+        var unit = Units[SelectedUnitIndex.Value];
+        if (unit.HasActed || unit.TurnEnded || !unit.IsAlive)
+        {
+            return false;
+        }
+
+        unit.IsGuarding = true;
+        unit.HasActed = true;
+        ClearActionMode();
+        MaybeAutoEndTurn(unit, grid);
+        return true;
+    }
+
+    public void EndSelectedTurn(CombatGrid grid)
+    {
+        if (!SelectedUnitIndex.HasValue)
+        {
+            return;
+        }
+
+        var unit = Units[SelectedUnitIndex.Value];
+        if (!unit.IsAlive)
+        {
+            SelectedUnitIndex = null;
+            ClearActionMode();
+            return;
+        }
+
+        unit.TurnEnded = true;
+        SelectedUnitIndex = null;
+        ClearActionMode();
+        TryStartEnemyTurnIfReady(grid);
+    }
+
+    public void ForceEndPlayerRound(CombatGrid grid)
     {
         foreach (var unit in Units)
         {
-            if (unit.Team != Team.Enemy)
+            if (unit.Team == Team.Hero && unit.IsAlive)
+            {
+                unit.TurnEnded = true;
+            }
+        }
+
+        SelectedUnitIndex = null;
+        ClearActionMode();
+        ExecuteEnemyTurn(grid);
+    }
+
+    private void ExecuteEnemyTurn(CombatGrid grid)
+    {
+        BeginEnemyRound();
+
+        foreach (var unit in Units)
+        {
+            if (unit.Team != Team.Enemy || !unit.IsAlive)
             {
                 continue;
             }
@@ -364,17 +647,30 @@ public sealed class CombatState
                 continue;
             }
 
-            var step = StepToward(unit.Position, target.Position, grid);
-            if (step.HasValue)
+            for (int step = 0; step < unit.MoveRange; step++)
             {
-                unit.Position = step.Value;
+                if (IsInRange(unit.Position, target.Position, unit.Range))
+                {
+                    break;
+                }
+
+                var nextStep = StepToward(unit.Position, target.Position, grid);
+                if (!nextStep.HasValue)
+                {
+                    break;
+                }
+
+                unit.Position = nextStep.Value;
+            }
+
+            var attackTarget = FindHeroInRange(unit.Position, unit.Range);
+            if (attackTarget != null)
+            {
+                ResolveAttack(unit, attackTarget, unit.Attack);
             }
         }
 
-        if (SelectedUnitIndex.HasValue)
-        {
-            RecalculateReachable(grid);
-        }
+        BeginPlayerRound(grid);
     }
 
     private CombatUnit? FindNearestHero(Point from)
@@ -384,13 +680,36 @@ public sealed class CombatState
 
         foreach (var unit in Units)
         {
-            if (unit.Team != Team.Hero)
+            if (unit.Team != Team.Hero || !unit.IsAlive)
             {
                 continue;
             }
 
             int dist = Math.Abs(unit.Position.X - from.X) + Math.Abs(unit.Position.Y - from.Y);
             if (dist < bestDistance)
+            {
+                bestDistance = dist;
+                best = unit;
+            }
+        }
+
+        return best;
+    }
+
+    private CombatUnit? FindHeroInRange(Point from, int range)
+    {
+        CombatUnit? best = null;
+        int bestDistance = int.MaxValue;
+
+        foreach (var unit in Units)
+        {
+            if (unit.Team != Team.Hero || !unit.IsAlive)
+            {
+                continue;
+            }
+
+            int dist = Math.Abs(unit.Position.X - from.X) + Math.Abs(unit.Position.Y - from.Y);
+            if (dist <= range && dist < bestDistance)
             {
                 bestDistance = dist;
                 best = unit;
@@ -435,7 +754,7 @@ public sealed class CombatState
     {
         foreach (var unit in Units)
         {
-            if (unit.Position == point)
+            if (unit.IsAlive && unit.Position == point)
             {
                 return true;
             }
@@ -443,9 +762,9 @@ public sealed class CombatState
         return false;
     }
 
-    private void RecalculateReachable(CombatGrid grid)
+    private void RecalculateMoveRange(CombatGrid grid)
     {
-        Reachable.Clear();
+        MoveRange.Clear();
         if (!SelectedUnitIndex.HasValue)
         {
             return;
@@ -478,11 +797,212 @@ public sealed class CombatState
                 }
 
                 visited.Add(neighbor);
-                Reachable.Add(neighbor);
+                MoveRange.Add(neighbor);
                 frontier.Enqueue((neighbor, current.Distance + 1));
             }
         }
     }
+
+    private void RecalculateAttackRange(CombatGrid grid)
+    {
+        AttackRange.Clear();
+        if (!SelectedUnitIndex.HasValue)
+        {
+            return;
+        }
+
+        var unit = Units[SelectedUnitIndex.Value];
+        foreach (var tile in GetRangeTiles(unit.Position, unit.Range, grid))
+        {
+            AttackRange.Add(tile);
+        }
+    }
+
+    private void RecalculateAbilityRange(CombatGrid grid)
+    {
+        AbilityRange.Clear();
+        if (!SelectedUnitIndex.HasValue)
+        {
+            return;
+        }
+
+        var unit = Units[SelectedUnitIndex.Value];
+        if (unit.Ability == AbilityType.None)
+        {
+            return;
+        }
+
+        foreach (var tile in GetRangeTiles(unit.Position, unit.AbilityRange, grid))
+        {
+            AbilityRange.Add(tile);
+        }
+    }
+
+    private IEnumerable<Point> GetRangeTiles(Point origin, int range, CombatGrid grid)
+    {
+        for (int dx = -range; dx <= range; dx++)
+        {
+            for (int dy = -range; dy <= range; dy++)
+            {
+                int dist = Math.Abs(dx) + Math.Abs(dy);
+                if (dist == 0 || dist > range)
+                {
+                    continue;
+                }
+
+                var point = new Point(origin.X + dx, origin.Y + dy);
+                if (grid.InBounds(point))
+                {
+                    yield return point;
+                }
+            }
+        }
+    }
+
+    private void ClearRanges()
+    {
+        MoveRange.Clear();
+        AttackRange.Clear();
+        AbilityRange.Clear();
+    }
+
+    private void MaybeAutoEndTurn(CombatUnit unit, CombatGrid grid)
+    {
+        if (unit.HasMoved && unit.HasActed)
+        {
+            unit.TurnEnded = true;
+            SelectedUnitIndex = null;
+            ClearActionMode();
+            TryStartEnemyTurnIfReady(grid);
+        }
+    }
+
+    private void TryStartEnemyTurnIfReady(CombatGrid grid)
+    {
+        if (CurrentTeam != Team.Hero)
+        {
+            return;
+        }
+
+        foreach (var unit in Units)
+        {
+            if (unit.Team == Team.Hero && unit.IsAlive && !unit.TurnEnded)
+            {
+                return;
+            }
+        }
+
+        ExecuteEnemyTurn(grid);
+    }
+
+    private void BeginPlayerRound(CombatGrid grid)
+    {
+        CurrentTeam = Team.Hero;
+        ResetTeam(Team.Hero);
+        SelectedUnitIndex = null;
+        ClearActionMode();
+    }
+
+    private void BeginEnemyRound()
+    {
+        CurrentTeam = Team.Enemy;
+        ResetTeam(Team.Enemy);
+        SelectedUnitIndex = null;
+        ClearActionMode();
+    }
+
+    private void ResetTeam(Team team)
+    {
+        foreach (var unit in Units)
+        {
+            if (unit.Team != team || !unit.IsAlive)
+            {
+                continue;
+            }
+
+            unit.HasMoved = false;
+            unit.HasActed = false;
+            unit.TurnEnded = false;
+            unit.IsGuarding = false;
+
+            if (unit.AbilityCooldownRemaining > 0)
+            {
+                unit.AbilityCooldownRemaining--;
+            }
+        }
+    }
+
+    private void ResolveAttack(CombatUnit attacker, CombatUnit target, int power)
+    {
+        int damage = Math.Max(1, power - target.Defense);
+        if (target.IsGuarding)
+        {
+            damage = Math.Max(1, (int)MathF.Ceiling(damage * 0.5f));
+            target.IsGuarding = false;
+        }
+
+        target.Hp = Math.Max(0, target.Hp - damage);
+    }
+
+    private bool ResolveAbility(CombatUnit caster, Point targetPoint)
+    {
+        switch (caster.Ability)
+        {
+            case AbilityType.Cleave:
+            {
+                if (!IsAdjacent(caster.Position, targetPoint))
+                {
+                    return false;
+                }
+
+                var target = GetUnitAt(targetPoint);
+                if (target == null || target.Team == caster.Team)
+                {
+                    return false;
+                }
+
+                foreach (var enemy in Units)
+                {
+                    if (enemy.Team != caster.Team && enemy.IsAlive && IsAdjacent(caster.Position, enemy.Position))
+                    {
+                        ResolveAttack(caster, enemy, caster.AbilityPower);
+                    }
+                }
+                return true;
+            }
+            case AbilityType.ThrowingKnife:
+            case AbilityType.ArcBolt:
+            {
+                var target = GetUnitAt(targetPoint);
+                if (target == null || target.Team == caster.Team)
+                {
+                    return false;
+                }
+
+                ResolveAttack(caster, target, caster.AbilityPower);
+                return true;
+            }
+            case AbilityType.Heal:
+            {
+                var target = GetUnitAt(targetPoint);
+                if (target == null || target.Team != caster.Team)
+                {
+                    return false;
+                }
+
+                target.Hp = Math.Min(target.MaxHp, target.Hp + caster.AbilityPower);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    private static bool IsAdjacent(Point a, Point b)
+        => Math.Abs(a.X - b.X) + Math.Abs(a.Y - b.Y) == 1;
+
+    private static bool IsInRange(Point a, Point b, int range)
+        => Math.Abs(a.X - b.X) + Math.Abs(a.Y - b.Y) <= range;
 }
 
 public sealed class InputState
@@ -511,6 +1031,10 @@ public sealed class InputState
     public bool IsLeftClick()
         => _currentMouse.LeftButton == ButtonState.Pressed
             && _previousMouse.LeftButton == ButtonState.Released;
+
+    public bool IsRightClick()
+        => _currentMouse.RightButton == ButtonState.Pressed
+            && _previousMouse.RightButton == ButtonState.Released;
 }
 
 public static class IsoMath
