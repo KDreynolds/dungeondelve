@@ -8,7 +8,8 @@ namespace HexCrawlGame;
 public enum GameMode
 {
     Overworld,
-    Combat
+    Combat,
+    Event
 }
 
 public enum BiomeType
@@ -292,6 +293,7 @@ public sealed class PartyMember
     public int AbilityPower { get; }
     public int AbilityCooldown { get; }
     public int InitiativeBonus { get; }
+    public bool IsAlive => Hp > 0;
 
     public PartyMember(
         string name,
@@ -334,6 +336,11 @@ public sealed class PartyMember
         Hp = Math.Clamp(unit.Hp, 0, MaxHp);
     }
 
+    public void AdjustHp(int delta)
+    {
+        Hp = Math.Clamp(Hp + delta, 0, MaxHp);
+    }
+
     public CombatUnit CreateCombatUnit(Point position)
     {
         var unit = new CombatUnit(
@@ -353,6 +360,52 @@ public sealed class PartyMember
             initiativeBonus: InitiativeBonus);
         unit.Hp = Math.Clamp(Hp, 0, unit.MaxHp);
         return unit;
+    }
+}
+
+public sealed class EventEffect
+{
+    public int PartyHpDelta { get; }
+    public int RandomPartyHpDelta { get; }
+    public int LegacyXpDelta { get; }
+    public bool ForceCombat { get; }
+    public string ResultText { get; }
+
+    public EventEffect(int partyHpDelta, int randomPartyHpDelta, int legacyXpDelta, bool forceCombat, string resultText)
+    {
+        PartyHpDelta = partyHpDelta;
+        RandomPartyHpDelta = randomPartyHpDelta;
+        LegacyXpDelta = legacyXpDelta;
+        ForceCombat = forceCombat;
+        ResultText = resultText;
+    }
+}
+
+public sealed class EventChoice
+{
+    public string Text { get; }
+    public EventEffect Effect { get; }
+
+    public EventChoice(string text, EventEffect effect)
+    {
+        Text = text;
+        Effect = effect;
+    }
+}
+
+public sealed class EventDefinition
+{
+    public string Title { get; }
+    public string Body { get; }
+    public BiomeType Biome { get; }
+    public EventChoice[] Choices { get; }
+
+    public EventDefinition(string title, string body, BiomeType biome, EventChoice[] choices)
+    {
+        Title = title;
+        Body = body;
+        Biome = biome;
+        Choices = choices;
     }
 }
 

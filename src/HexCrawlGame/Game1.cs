@@ -17,6 +17,7 @@ public sealed class Game1 : Game
     private const int MapHeight = 20;
     private const int VisionRadius = 2;
     private const int EncounterChancePercent = 20;
+    private const int EventChancePercent = 40;
     private const int LegacyXpPerHex = 5;
     private const int LegacyXpPerVictory = 20;
     private const int CombatGridSize = 8;
@@ -29,6 +30,8 @@ public sealed class Game1 : Game
     private List<PartyMember> _party = new();
     private int _runNumber = 1;
     private int _legacyXp = 0;
+    private EventDefinition? _currentEvent;
+    private BiomeType _currentEventBiome;
     private Vector2 _overworldCamera = Vector2.Zero;
     private Vector2 _overworldOrigin;
     private float _hexSize = 28f;
@@ -135,9 +138,13 @@ public sealed class Game1 : Game
         {
             UpdateOverworld();
         }
-        else
+        else if (_mode == GameMode.Combat)
         {
             UpdateCombat();
+        }
+        else if (_mode == GameMode.Event)
+        {
+            UpdateEvent();
         }
 
         base.Update(gameTime);
@@ -226,6 +233,24 @@ public sealed class Game1 : Game
         HandleCombatOutcome();
     }
 
+    private void UpdateEvent()
+    {
+        if (_currentEvent == null)
+        {
+            _mode = GameMode.Overworld;
+            return;
+        }
+
+        if (_input.IsNewKeyPress(Keys.D1) || _input.IsNewKeyPress(Keys.NumPad1))
+        {
+            ResolveEventChoice(0);
+        }
+        else if (_input.IsNewKeyPress(Keys.D2) || _input.IsNewKeyPress(Keys.NumPad2))
+        {
+            ResolveEventChoice(1);
+        }
+    }
+
     protected override void Draw(GameTime gameTime)
     {
         GraphicsDevice.Clear(new Color(18, 18, 24));
@@ -236,9 +261,13 @@ public sealed class Game1 : Game
         {
             DrawOverworld();
         }
-        else
+        else if (_mode == GameMode.Combat)
         {
             DrawCombat();
+        }
+        else if (_mode == GameMode.Event)
+        {
+            DrawEvent();
         }
 
         DrawToast();
@@ -301,12 +330,41 @@ public sealed class Game1 : Game
         DrawOverworldHud();
     }
 
+    private void DrawEvent()
+    {
+        if (_currentEvent == null)
+        {
+            return;
+        }
+
+        var dim = new Color(0, 0, 0, 160);
+        _spriteBatch.Draw(_pixel, new Rectangle(0, 0, _graphics.PreferredBackBufferWidth, _graphics.PreferredBackBufferHeight), dim);
+
+        string text = BuildEventText(_currentEvent);
+        const int scale = 2;
+        const int padding = 12;
+        var size = _font.MeasureString(text, scale);
+        var pos = new Vector2(
+            (_graphics.PreferredBackBufferWidth - size.X) / 2f,
+            (_graphics.PreferredBackBufferHeight - size.Y) / 2f);
+        DrawHudPanel(pos, text, new Color(230, 230, 235), scale, padding);
+    }
+
     private void DrawOverworldHud()
     {
         const int scale = 2;
         const int padding = 8;
         string statusText = BuildOverworldStatusText();
         DrawHudPanel(new Vector2(16, 16), statusText, new Color(225, 225, 235), scale, padding);
+    }
+
+    private string BuildEventText(EventDefinition definition)
+    {
+        string title = definition.Title.ToUpperInvariant();
+        string body = definition.Body;
+        string choice1 = $"1) {definition.Choices[0].Text}";
+        string choice2 = $"2) {definition.Choices[1].Text}";
+        return $"{title}\n\n{body}\n\n{choice1}\n{choice2}";
     }
 
     private string BuildOverworldStatusText()
@@ -593,6 +651,7 @@ public sealed class Game1 : Game
     {
         _mode = GameMode.Overworld;
         _party = CreateDefaultParty();
+        _currentEvent = null;
 
         int bonusHp = LegacyLevel;
         foreach (var member in _party)
@@ -689,9 +748,29 @@ public sealed class Game1 : Game
 
     private void StartEncounter(BiomeType biome)
     {
+        if (_rng.Next(100) < EventChancePercent)
+        {
+            StartEvent(biome);
+        }
+        else
+        {
+            StartCombat(biome, "ENCOUNTER");
+        }
+    }
+
+    private void StartCombat(BiomeType biome, string toastMessage)
+    {
         _combatState = BuildEncounterState(biome);
         _mode = GameMode.Combat;
-        ShowToast("ENCOUNTER");
+        ShowToast(toastMessage);
+    }
+
+    private void StartEvent(BiomeType biome)
+    {
+        _currentEventBiome = biome;
+        _currentEvent = RollEvent(biome);
+        _mode = GameMode.Event;
+        ShowToast("EVENT");
     }
 
     private CombatState BuildEncounterState(BiomeType biome)
@@ -798,6 +877,173 @@ public sealed class Game1 : Game
         }
 
         return enemies;
+    }
+
+    private EventDefinition RollEvent(BiomeType biome)
+    {
+        var pool = GetEventPool(biome);
+        return pool[_rng.Next(pool.Count)];
+    }
+
+    private IReadOnlyList<EventDefinition> GetEventPool(BiomeType biome)
+    {
+        var pool = new List<EventDefinition>();
+        pool.AddRange(GetCommonEvents());
+        pool.AddRange(GetBiomeEvents(biome));
+        return pool;
+    }
+
+    private IReadOnlyList<EventDefinition> GetCommonEvents()
+    {
+        return new[]
+        {
+            new EventDefinition(
+                "Strange Shrine",
+                "A weathered shrine sits beside the trail, its stones cold to the touch.",
+                BiomeType.Plains,
+                new[]
+                {
+                    new EventChoice("Pray for guidance", new EventEffect(1, 0, 0, false, "A calm settles over the party (+1 HP each).")),
+                    new EventChoice("Leave it be", new EventEffect(0, 0, 5, false, "You move on with fresh resolve (+5 XP)."))
+                })
+        };
+    }
+
+    private IReadOnlyList<EventDefinition> GetBiomeEvents(BiomeType biome)
+    {
+        return biome switch
+        {
+            BiomeType.Forest => new[]
+            {
+                new EventDefinition(
+                    "Berry Patch",
+                    "You find a patch of ripe berries tucked under the trees.",
+                    BiomeType.Forest,
+                    new[]
+                    {
+                        new EventChoice("Eat the berries", new EventEffect(2, 0, 0, false, "The party feels refreshed (+2 HP each).")),
+                        new EventChoice("Gather and move on", new EventEffect(0, 0, 10, false, "You mark the find in your notes (+10 XP)."))
+                    }),
+                new EventDefinition(
+                    "Wolf Howls",
+                    "Howls echo through the forest. Shadows pace you from the treeline.",
+                    BiomeType.Forest,
+                    new[]
+                    {
+                        new EventChoice("Stand your ground", new EventEffect(0, 0, 0, true, "A pack attacks!")),
+                        new EventChoice("Hide and wait", new EventEffect(0, 0, 5, false, "You avoid danger (+5 XP)."))
+                    })
+            },
+            BiomeType.Hills => new[]
+            {
+                new EventDefinition(
+                    "Rockslide",
+                    "Loose stones tumble down the slope as you climb.",
+                    BiomeType.Hills,
+                    new[]
+                    {
+                        new EventChoice("Dash through", new EventEffect(-2, 0, 0, false, "You are battered by debris (-2 HP each).")),
+                        new EventChoice("Find a safer path", new EventEffect(0, 0, 5, false, "You learn the terrain (+5 XP)."))
+                    }),
+                new EventDefinition(
+                    "Old Mine",
+                    "A collapsed mine entrance hints at forgotten riches.",
+                    BiomeType.Hills,
+                    new[]
+                    {
+                        new EventChoice("Search the shaft", new EventEffect(0, 0, 15, false, "You salvage ore and tools (+15 XP).")),
+                        new EventChoice("Keep moving", new EventEffect(0, 0, 5, false, "You stay alert (+5 XP)."))
+                    })
+            },
+            _ => new[]
+            {
+                new EventDefinition(
+                    "Wayfarer",
+                    "A lone traveler offers stories of the road ahead.",
+                    BiomeType.Plains,
+                    new[]
+                    {
+                        new EventChoice("Trade stories", new EventEffect(0, 0, 10, false, "You learn the region (+10 XP).")),
+                        new EventChoice("Decline politely", new EventEffect(0, 0, 5, false, "You keep your distance (+5 XP)."))
+                    }),
+                new EventDefinition(
+                    "Dust Storm",
+                    "A wall of dust rolls across the plains.",
+                    BiomeType.Plains,
+                    new[]
+                    {
+                        new EventChoice("Push through", new EventEffect(-1, 0, 0, false, "Grit wears you down (-1 HP each).")),
+                        new EventChoice("Take shelter", new EventEffect(0, 0, 5, false, "You recover your bearings (+5 XP)."))
+                    })
+            }
+        };
+    }
+
+    private void ResolveEventChoice(int index)
+    {
+        if (_currentEvent == null || index < 0 || index >= _currentEvent.Choices.Length)
+        {
+            return;
+        }
+
+        var choice = _currentEvent.Choices[index];
+        ApplyEventEffect(choice.Effect);
+        _currentEvent = null;
+
+        if (IsPartyDefeated())
+        {
+            HandleDefeat();
+            return;
+        }
+
+        if (choice.Effect.ForceCombat)
+        {
+            StartCombat(_currentEventBiome, choice.Effect.ResultText);
+        }
+        else
+        {
+            _mode = GameMode.Overworld;
+            ShowToast(choice.Effect.ResultText);
+        }
+    }
+
+    private void ApplyEventEffect(EventEffect effect)
+    {
+        if (effect.PartyHpDelta != 0)
+        {
+            foreach (var member in _party)
+            {
+                member.AdjustHp(effect.PartyHpDelta);
+            }
+        }
+
+        if (effect.RandomPartyHpDelta != 0)
+        {
+            var alive = _party.FindAll(m => m.IsAlive);
+            if (alive.Count > 0)
+            {
+                var target = alive[_rng.Next(alive.Count)];
+                target.AdjustHp(effect.RandomPartyHpDelta);
+            }
+        }
+
+        if (effect.LegacyXpDelta > 0)
+        {
+            AwardLegacyXp(effect.LegacyXpDelta);
+        }
+    }
+
+    private bool IsPartyDefeated()
+    {
+        foreach (var member in _party)
+        {
+            if (member.IsAlive)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void HandleCombatOutcome()
