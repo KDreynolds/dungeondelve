@@ -11,11 +11,24 @@ public sealed class Game1 : Game
     private readonly GraphicsDeviceManager _graphics;
     private SpriteBatch _spriteBatch = null!;
     private readonly InputState _input = new();
+    private readonly Random _rng = new(12345);
+
+    private const int MapWidth = 20;
+    private const int MapHeight = 20;
+    private const int VisionRadius = 2;
+    private const int EncounterChancePercent = 20;
+    private const int LegacyXpPerHex = 5;
+    private const int LegacyXpPerVictory = 20;
+    private const int CombatGridSize = 8;
 
     private GameMode _mode = GameMode.Overworld;
 
     private HexMap _hexMap = null!;
     private HexCoord _partyPos;
+    private HexCoord _townPos;
+    private List<PartyMember> _party = new();
+    private int _runNumber = 1;
+    private int _legacyXp = 0;
     private Vector2 _overworldCamera = Vector2.Zero;
     private Vector2 _overworldOrigin;
     private float _hexSize = 28f;
@@ -32,6 +45,9 @@ public sealed class Game1 : Game
     private Texture2D _pixel = null!;
     private readonly PixelFont _font = new();
 
+    private string _toastMessage = string.Empty;
+    private float _toastTimer;
+
     public Game1()
     {
         _graphics = new GraphicsDeviceManager(this);
@@ -45,13 +61,9 @@ public sealed class Game1 : Game
         _graphics.PreferredBackBufferHeight = 720;
         _graphics.ApplyChanges();
 
-        var rng = new Random(12345);
-        _hexMap = HexMap.Generate(20, 20, rng);
-        _partyPos = new HexCoord(10, 10);
-        _hexMap.UpdateVisibility(_partyPos, 2);
-
-        _combatGrid = new CombatGrid(8, 8);
-        _combatState = CombatState.CreateDefault(rng);
+        _combatGrid = new CombatGrid(CombatGridSize, CombatGridSize);
+        _combatState = new CombatState(_rng);
+        StartNewRun();
 
         _overworldOrigin = new Vector2(_graphics.PreferredBackBufferWidth / 2f, 80f);
         _combatOrigin = new Vector2(_graphics.PreferredBackBufferWidth / 2f, 80f);
@@ -82,6 +94,10 @@ public sealed class Game1 : Game
         }
 
         float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+        if (_toastTimer > 0f)
+        {
+            _toastTimer = MathF.Max(0f, _toastTimer - dt);
+        }
         Vector2 cameraDelta = Vector2.Zero;
 
         if (_input.IsKeyDown(Keys.W))
@@ -137,8 +153,7 @@ public sealed class Game1 : Game
 
             if (_hexMap.InBounds(coord) && HexCoord.Distance(coord, _partyPos) == 1)
             {
-                _partyPos = coord;
-                _hexMap.UpdateVisibility(_partyPos, 2);
+                MovePartyTo(coord);
             }
         }
     }
@@ -148,6 +163,7 @@ public sealed class Game1 : Game
         if (!_combatState.IsPlayerTurn)
         {
             _combatState.ExecuteEnemyTurn(_combatGrid);
+            HandleCombatOutcome();
             return;
         }
 
@@ -206,6 +222,8 @@ public sealed class Game1 : Game
         {
             _combatState.EndCurrentTurn(_combatGrid);
         }
+
+        HandleCombatOutcome();
     }
 
     protected override void Draw(GameTime gameTime)
@@ -222,6 +240,8 @@ public sealed class Game1 : Game
         {
             DrawCombat();
         }
+
+        DrawToast();
 
         _spriteBatch.End();
 
@@ -250,6 +270,19 @@ public sealed class Game1 : Game
                 }
 
                 _spriteBatch.Draw(_hexTexture, drawPos, color);
+
+                if (tile.Revealed && tile.Visited)
+                {
+                    var markerRect = new Rectangle((int)center.X - 2, (int)center.Y - 2, 4, 4);
+                    var markerColor = tile.Visible ? new Color(230, 230, 235) : new Color(140, 140, 150);
+                    _spriteBatch.Draw(_pixel, markerRect, markerColor);
+                }
+
+                if (tile.Revealed && coord.Equals(_townPos))
+                {
+                    var townRect = new Rectangle((int)center.X - 3, (int)center.Y - 12, 6, 6);
+                    _spriteBatch.Draw(_pixel, townRect, new Color(220, 200, 120));
+                }
             }
         }
 
@@ -264,6 +297,64 @@ public sealed class Game1 : Game
             var drawPos = center - new Vector2(_hexTexture.Width / 2f, _hexTexture.Height / 2f);
             _spriteBatch.Draw(_hexTexture, drawPos, new Color(255, 255, 255) * 0.15f);
         }
+
+        DrawOverworldHud();
+    }
+
+    private void DrawOverworldHud()
+    {
+        const int scale = 2;
+        const int padding = 8;
+        string statusText = BuildOverworldStatusText();
+        DrawHudPanel(new Vector2(16, 16), statusText, new Color(225, 225, 235), scale, padding);
+    }
+
+    private string BuildOverworldStatusText()
+    {
+        string runLine = $"RUN: {_runNumber}";
+        string legacyLine = $"LEGACY XP: {_legacyXp}  LEVEL: {LegacyLevel}";
+        string partyLine1 = BuildPartyLine("PARTY", 0, 2);
+        string partyLine2 = BuildPartyLine(string.Empty, 2, 2);
+        string visitedLine = $"VISITED: {_hexMap.CountVisited()}";
+
+        var lines = new List<string> { runLine, legacyLine };
+        if (!string.IsNullOrEmpty(partyLine1))
+        {
+            lines.Add(partyLine1);
+        }
+        if (!string.IsNullOrEmpty(partyLine2))
+        {
+            lines.Add(partyLine2);
+        }
+        lines.Add(visitedLine);
+
+        return string.Join('\n', lines);
+    }
+
+    private string BuildPartyLine(string label, int start, int count)
+    {
+        var parts = new List<string>();
+        int end = Math.Min(start + count, _party.Count);
+        for (int i = start; i < end; i++)
+        {
+            var member = _party[i];
+            string prefix = member.Name.Length > 0
+                ? member.Name.Substring(0, 1).ToUpperInvariant()
+                : "?";
+            parts.Add($"{prefix} {member.Hp}/{member.MaxHp}");
+        }
+
+        if (parts.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return string.Join("  ", parts);
+        }
+
+        return $"{label}: {string.Join("  ", parts)}";
     }
 
     private void DrawCombat()
@@ -363,6 +454,22 @@ public sealed class Game1 : Game
         _font.DrawString(_spriteBatch, _pixel, text, position, textColor, scale);
     }
 
+    private void DrawToast()
+    {
+        if (string.IsNullOrWhiteSpace(_toastMessage) || _toastTimer <= 0f)
+        {
+            return;
+        }
+
+        const int scale = 2;
+        const int padding = 6;
+        var size = _font.MeasureString(_toastMessage, scale);
+        var position = new Vector2(
+            (_graphics.PreferredBackBufferWidth - size.X) / 2f,
+            12f);
+        DrawHudPanel(position, _toastMessage, new Color(240, 240, 245), scale, padding);
+    }
+
     private string BuildCombatStatusText()
     {
         var current = _combatState.CurrentUnit;
@@ -431,12 +538,7 @@ public sealed class Game1 : Game
                 var unit = _combatState.Units[unitIndex];
                 if (unit.IsAlive)
                 {
-                    string name = unit.Name.ToUpperInvariant();
-                    if (unitIndex == _combatState.CurrentUnitIndex)
-                    {
-                        name = $"*{name}";
-                    }
-                    names.Add(name);
+                    names.Add(unit.Name.ToUpperInvariant());
                 }
             }
 
@@ -444,7 +546,7 @@ public sealed class Game1 : Game
             visited++;
         }
 
-        return names.Count == 0 ? "ORDER: NONE" : $"ORDER: {string.Join(" > ", names)}";
+        return names.Count == 0 ? "ORDER: NONE" : $"ORDER: {string.Join(" / ", names)}";
     }
 
     private string BuildAbilityLine(CombatUnit unit)
@@ -483,6 +585,280 @@ public sealed class Game1 : Game
             AbilityType.Heal => "HEAL",
             _ => "NONE"
         };
+    }
+
+    private int LegacyLevel => _legacyXp / 100;
+
+    private void StartNewRun()
+    {
+        _mode = GameMode.Overworld;
+        _party = CreateDefaultParty();
+
+        int bonusHp = LegacyLevel;
+        foreach (var member in _party)
+        {
+            member.StartNewRun(bonusHp);
+        }
+
+        _hexMap = HexMap.Generate(MapWidth, MapHeight, _rng);
+        _townPos = new HexCoord(MapWidth / 2, MapHeight / 2);
+        _partyPos = _townPos;
+        _hexMap.UpdateVisibility(_partyPos, VisionRadius);
+        _hexMap.Visit(_partyPos);
+
+        _combatState = new CombatState(_rng);
+        _combatCamera = Vector2.Zero;
+        _overworldCamera = Vector2.Zero;
+    }
+
+    private List<PartyMember> CreateDefaultParty()
+    {
+        return new List<PartyMember>
+        {
+            new PartyMember(
+                "Fighter",
+                baseMaxHp: 12,
+                attack: 5,
+                defense: 3,
+                range: 1,
+                moveRange: 3,
+                hasDiagonalMove: false,
+                ability: AbilityType.Cleave,
+                abilityRange: 1,
+                abilityPower: 4,
+                abilityCooldown: 2,
+                initiativeBonus: 2),
+            new PartyMember(
+                "Rogue",
+                baseMaxHp: 9,
+                attack: 4,
+                defense: 2,
+                range: 1,
+                moveRange: 4,
+                hasDiagonalMove: true,
+                ability: AbilityType.ThrowingKnife,
+                abilityRange: 3,
+                abilityPower: 3,
+                abilityCooldown: 2,
+                initiativeBonus: 4),
+            new PartyMember(
+                "Mage",
+                baseMaxHp: 7,
+                attack: 3,
+                defense: 1,
+                range: 2,
+                moveRange: 3,
+                hasDiagonalMove: false,
+                ability: AbilityType.ArcBolt,
+                abilityRange: 4,
+                abilityPower: 4,
+                abilityCooldown: 2,
+                initiativeBonus: 1),
+            new PartyMember(
+                "Cleric",
+                baseMaxHp: 10,
+                attack: 3,
+                defense: 2,
+                range: 1,
+                moveRange: 3,
+                hasDiagonalMove: false,
+                ability: AbilityType.Heal,
+                abilityRange: 3,
+                abilityPower: 4,
+                abilityCooldown: 2,
+                initiativeBonus: 1)
+        };
+    }
+
+    private void MovePartyTo(HexCoord coord)
+    {
+        _partyPos = coord;
+        _hexMap.UpdateVisibility(_partyPos, VisionRadius);
+
+        bool firstVisit = _hexMap.Visit(_partyPos);
+        if (firstVisit)
+        {
+            AwardLegacyXp(LegacyXpPerHex);
+        }
+
+        if (!coord.Equals(_townPos) && _rng.Next(100) < EncounterChancePercent)
+        {
+            StartEncounter(_hexMap.GetTile(coord).Biome);
+        }
+    }
+
+    private void StartEncounter(BiomeType biome)
+    {
+        _combatState = BuildEncounterState(biome);
+        _mode = GameMode.Combat;
+        ShowToast("ENCOUNTER");
+    }
+
+    private CombatState BuildEncounterState(BiomeType biome)
+    {
+        var state = new CombatState(_rng);
+        var heroPositions = new[]
+        {
+            new Point(1, 6),
+            new Point(2, 6),
+            new Point(3, 6),
+            new Point(4, 6)
+        };
+
+        for (int i = 0; i < _party.Count && i < heroPositions.Length; i++)
+        {
+            state.Units.Add(_party[i].CreateCombatUnit(heroPositions[i]));
+        }
+
+        var enemyPositions = new[]
+        {
+            new Point(2, 1),
+            new Point(4, 1),
+            new Point(3, 2),
+            new Point(5, 2)
+        };
+        foreach (var enemy in BuildEnemyUnits(biome, enemyPositions))
+        {
+            state.Units.Add(enemy);
+        }
+
+        state.StartCombat();
+        return state;
+    }
+
+    private readonly struct EnemyTemplate
+    {
+        public string Name { get; }
+        public int MaxHp { get; }
+        public int Attack { get; }
+        public int Defense { get; }
+        public int Range { get; }
+        public int MoveRange { get; }
+        public int InitiativeBonus { get; }
+
+        public EnemyTemplate(string name, int maxHp, int attack, int defense, int range, int moveRange, int initiativeBonus)
+        {
+            Name = name;
+            MaxHp = maxHp;
+            Attack = attack;
+            Defense = defense;
+            Range = range;
+            MoveRange = moveRange;
+            InitiativeBonus = initiativeBonus;
+        }
+    }
+
+    private IReadOnlyList<EnemyTemplate> GetEnemyPool(BiomeType biome)
+    {
+        return biome switch
+        {
+            BiomeType.Forest => new[]
+            {
+                new EnemyTemplate("Wolf", 7, 4, 1, 1, 4, 3),
+                new EnemyTemplate("Goblin", 6, 3, 1, 1, 3, 2)
+            },
+            BiomeType.Hills => new[]
+            {
+                new EnemyTemplate("Raider", 8, 4, 2, 1, 3, 1),
+                new EnemyTemplate("Wolf", 7, 4, 1, 1, 4, 3)
+            },
+            _ => new[]
+            {
+                new EnemyTemplate("Goblin", 6, 3, 1, 1, 3, 2),
+                new EnemyTemplate("Raider", 8, 4, 2, 1, 3, 1)
+            }
+        };
+    }
+
+    private List<CombatUnit> BuildEnemyUnits(BiomeType biome, Point[] positions)
+    {
+        var pool = GetEnemyPool(biome);
+        int maxCount = Math.Min(positions.Length, 4);
+        int enemyCount = _rng.Next(2, maxCount + 1);
+        var enemies = new List<CombatUnit>();
+
+        for (int i = 0; i < enemyCount; i++)
+        {
+            var template = pool[_rng.Next(pool.Count)];
+            enemies.Add(new CombatUnit(
+                template.Name,
+                Team.Enemy,
+                positions[i],
+                template.MoveRange,
+                false,
+                maxHp: template.MaxHp,
+                attack: template.Attack,
+                defense: template.Defense,
+                range: template.Range,
+                ability: AbilityType.None,
+                abilityRange: 0,
+                abilityPower: 0,
+                abilityCooldown: 0,
+                initiativeBonus: template.InitiativeBonus));
+        }
+
+        return enemies;
+    }
+
+    private void HandleCombatOutcome()
+    {
+        if (_combatState.Units.Count == 0)
+        {
+            return;
+        }
+
+        if (_combatState.IsVictory)
+        {
+            HandleVictory();
+        }
+        else if (_combatState.IsDefeat)
+        {
+            HandleDefeat();
+        }
+    }
+
+    private void HandleVictory()
+    {
+        SyncPartyFromCombat();
+        AwardLegacyXp(LegacyXpPerVictory);
+        _mode = GameMode.Overworld;
+        _combatState = new CombatState(_rng);
+        ShowToast("VICTORY");
+    }
+
+    private void HandleDefeat()
+    {
+        _runNumber++;
+        StartNewRun();
+        ShowToast("PARTY DEAD");
+    }
+
+    private void SyncPartyFromCombat()
+    {
+        foreach (var member in _party)
+        {
+            var unit = _combatState.Units.Find(u => u.Team == Team.Hero && u.Name == member.Name);
+            if (unit != null)
+            {
+                member.ApplyCombatResult(unit);
+            }
+        }
+    }
+
+    private void AwardLegacyXp(int amount)
+    {
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        _legacyXp += amount;
+    }
+
+    private void ShowToast(string message, float durationSeconds = 2.5f)
+    {
+        _toastMessage = message;
+        _toastTimer = durationSeconds;
     }
 
     private void DrawHealthBar(Vector2 center, CombatUnit unit)

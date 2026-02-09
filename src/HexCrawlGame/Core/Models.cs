@@ -168,6 +168,7 @@ public sealed class HexTile
     public BiomeType Biome { get; set; }
     public bool Revealed { get; set; }
     public bool Visible { get; set; }
+    public bool Visited { get; set; }
 }
 
 public sealed class HexMap
@@ -209,6 +210,36 @@ public sealed class HexMap
         return _tiles[coord.R * Width + coord.Q];
     }
 
+    public bool Visit(HexCoord coord)
+    {
+        if (!InBounds(coord))
+        {
+            return false;
+        }
+
+        var tile = GetTile(coord);
+        if (tile.Visited)
+        {
+            return false;
+        }
+
+        tile.Visited = true;
+        return true;
+    }
+
+    public int CountVisited()
+    {
+        int count = 0;
+        foreach (var tile in _tiles)
+        {
+            if (tile.Visited)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
     public void UpdateVisibility(HexCoord center, int radius)
     {
         foreach (var tile in _tiles)
@@ -241,6 +272,87 @@ public sealed class HexMap
             return BiomeType.Forest;
         }
         return BiomeType.Hills;
+    }
+}
+
+public sealed class PartyMember
+{
+    public string Name { get; }
+    public int BaseMaxHp { get; }
+    public int BonusMaxHp { get; private set; }
+    public int MaxHp => BaseMaxHp + BonusMaxHp;
+    public int Hp { get; private set; }
+    public int Attack { get; }
+    public int Defense { get; }
+    public int Range { get; }
+    public int MoveRange { get; }
+    public bool HasDiagonalMove { get; }
+    public AbilityType Ability { get; }
+    public int AbilityRange { get; }
+    public int AbilityPower { get; }
+    public int AbilityCooldown { get; }
+    public int InitiativeBonus { get; }
+
+    public PartyMember(
+        string name,
+        int baseMaxHp,
+        int attack,
+        int defense,
+        int range,
+        int moveRange,
+        bool hasDiagonalMove,
+        AbilityType ability,
+        int abilityRange,
+        int abilityPower,
+        int abilityCooldown,
+        int initiativeBonus)
+    {
+        Name = name;
+        BaseMaxHp = baseMaxHp;
+        Attack = attack;
+        Defense = defense;
+        Range = range;
+        MoveRange = moveRange;
+        HasDiagonalMove = hasDiagonalMove;
+        Ability = ability;
+        AbilityRange = abilityRange;
+        AbilityPower = abilityPower;
+        AbilityCooldown = abilityCooldown;
+        InitiativeBonus = initiativeBonus;
+        BonusMaxHp = 0;
+        Hp = baseMaxHp;
+    }
+
+    public void StartNewRun(int bonusMaxHp)
+    {
+        BonusMaxHp = Math.Max(0, bonusMaxHp);
+        Hp = MaxHp;
+    }
+
+    public void ApplyCombatResult(CombatUnit unit)
+    {
+        Hp = Math.Clamp(unit.Hp, 0, MaxHp);
+    }
+
+    public CombatUnit CreateCombatUnit(Point position)
+    {
+        var unit = new CombatUnit(
+            Name,
+            Team.Hero,
+            position,
+            MoveRange,
+            HasDiagonalMove,
+            maxHp: MaxHp,
+            attack: Attack,
+            defense: Defense,
+            range: Range,
+            ability: Ability,
+            abilityRange: AbilityRange,
+            abilityPower: AbilityPower,
+            abilityCooldown: AbilityCooldown,
+            initiativeBonus: InitiativeBonus);
+        unit.Hp = Math.Clamp(Hp, 0, unit.MaxHp);
+        return unit;
     }
 }
 
@@ -450,6 +562,10 @@ public sealed class CombatState
 
         return count;
     }
+
+    public bool IsVictory => CountAlive(Team.Enemy) == 0;
+
+    public bool IsDefeat => CountAlive(Team.Hero) == 0;
 
     public CombatUnit? GetUnitAt(Point point)
     {
