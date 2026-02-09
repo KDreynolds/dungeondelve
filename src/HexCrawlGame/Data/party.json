@@ -1,0 +1,60 @@
+{
+  "party": [
+    {
+      "name": "Fighter",
+      "baseMaxHp": 12,
+      "attack": 5,
+      "defense": 3,
+      "range": 1,
+      "moveRange": 3,
+      "hasDiagonalMove": false,
+      "ability": "Cleave",
+      "abilityRange": 1,
+      "abilityPower": 4,
+      "abilityCooldown": 2,
+      "initiativeBonus": 2
+    },
+    {
+      "name": "Rogue",
+      "baseMaxHp": 9,
+      "attack": 4,
+      "defense": 2,
+      "range": 1,
+      "moveRange": 4,
+      "hasDiagonalMove": true,
+      "ability": "ThrowingKnife",
+      "abilityRange": 3,
+      "abilityPower": 3,
+      "abilityCooldown": 2,
+      "initiativeBonus": 4
+    },
+    {
+      "name": "Mage",
+      "baseMaxHp": 7,
+      "attack": 3,
+      "defense": 1,
+      "range": 2,
+      "moveRange": 3,
+      "hasDiagonalMove": false,
+      "ability": "ArcBolt",
+      "abilityRange": 4,
+      "abilityPower": 4,
+      "abilityCooldown": 2,
+      "initiativeBonus": 1
+    },
+    {
+      "name": "Cleric",
+      "baseMaxHp": 10,
+      "attack": 3,
+      "defense": 2,
+      "range": 1,
+      "moveRange": 3,
+      "hasDiagonalMove": false,
+      "ability": "Heal",
+      "abilityRange": 3,
+      "abilityPower": 4,
+      "abilityCooldown": 2,
+      "initiativeBonus": 1
+    }
+  ]
+}

@@ -365,11 +365,15 @@ public sealed class PartyMember
 
 public sealed class EventEffect
 {
-    public int PartyHpDelta { get; }
-    public int RandomPartyHpDelta { get; }
-    public int LegacyXpDelta { get; }
-    public bool ForceCombat { get; }
-    public string ResultText { get; }
+    public int PartyHpDelta { get; set; }
+    public int RandomPartyHpDelta { get; set; }
+    public int LegacyXpDelta { get; set; }
+    public bool ForceCombat { get; set; }
+    public string ResultText { get; set; } = string.Empty;
+
+    public EventEffect()
+    {
+    }
 
     public EventEffect(int partyHpDelta, int randomPartyHpDelta, int legacyXpDelta, bool forceCombat, string resultText)
     {
@@ -383,8 +387,12 @@ public sealed class EventEffect
 
 public sealed class EventChoice
 {
-    public string Text { get; }
-    public EventEffect Effect { get; }
+    public string Text { get; set; } = string.Empty;
+    public EventEffect Effect { get; set; } = new();
+
+    public EventChoice()
+    {
+    }
 
     public EventChoice(string text, EventEffect effect)
     {
@@ -395,10 +403,14 @@ public sealed class EventChoice
 
 public sealed class EventDefinition
 {
-    public string Title { get; }
-    public string Body { get; }
-    public BiomeType Biome { get; }
-    public EventChoice[] Choices { get; }
+    public string Title { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+    public BiomeType Biome { get; set; }
+    public EventChoice[] Choices { get; set; } = Array.Empty<EventChoice>();
+
+    public EventDefinition()
+    {
+    }
 
     public EventDefinition(string title, string body, BiomeType biome, EventChoice[] choices)
     {

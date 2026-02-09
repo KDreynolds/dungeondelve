@@ -30,6 +30,7 @@ public sealed class Game1 : Game
     private List<PartyMember> _party = new();
     private int _runNumber = 1;
     private int _legacyXp = 0;
+    private ContentCatalog _content = new();
     private EventDefinition? _currentEvent;
     private BiomeType _currentEventBiome;
     private Vector2 _overworldCamera = Vector2.Zero;
@@ -66,6 +67,7 @@ public sealed class Game1 : Game
 
         _combatGrid = new CombatGrid(CombatGridSize, CombatGridSize);
         _combatState = new CombatState(_rng);
+        LoadContentData();
         StartNewRun();
 
         _overworldOrigin = new Vector2(_graphics.PreferredBackBufferWidth / 2f, 80f);
@@ -362,8 +364,8 @@ public sealed class Game1 : Game
     {
         string title = definition.Title.ToUpperInvariant();
         string body = definition.Body;
-        string choice1 = $"1) {definition.Choices[0].Text}";
-        string choice2 = $"2) {definition.Choices[1].Text}";
+        string choice1 = definition.Choices.Length > 0 ? $"1) {definition.Choices[0].Text}" : "1) -";
+        string choice2 = definition.Choices.Length > 1 ? $"2) {definition.Choices[1].Text}" : "2) -";
         return $"{title}\n\n{body}\n\n{choice1}\n{choice2}";
     }
 
@@ -647,10 +649,15 @@ public sealed class Game1 : Game
 
     private int LegacyLevel => _legacyXp / 100;
 
+    private void LoadContentData()
+    {
+        _content = ContentLoader.Load(AppContext.BaseDirectory);
+    }
+
     private void StartNewRun()
     {
         _mode = GameMode.Overworld;
-        _party = CreateDefaultParty();
+        _party = CreatePartyFromContent();
         _currentEvent = null;
 
         int bonusHp = LegacyLevel;
@@ -670,63 +677,27 @@ public sealed class Game1 : Game
         _overworldCamera = Vector2.Zero;
     }
 
-    private List<PartyMember> CreateDefaultParty()
+    private List<PartyMember> CreatePartyFromContent()
     {
-        return new List<PartyMember>
+        var members = new List<PartyMember>();
+        foreach (var template in _content.Party)
         {
-            new PartyMember(
-                "Fighter",
-                baseMaxHp: 12,
-                attack: 5,
-                defense: 3,
-                range: 1,
-                moveRange: 3,
-                hasDiagonalMove: false,
-                ability: AbilityType.Cleave,
-                abilityRange: 1,
-                abilityPower: 4,
-                abilityCooldown: 2,
-                initiativeBonus: 2),
-            new PartyMember(
-                "Rogue",
-                baseMaxHp: 9,
-                attack: 4,
-                defense: 2,
-                range: 1,
-                moveRange: 4,
-                hasDiagonalMove: true,
-                ability: AbilityType.ThrowingKnife,
-                abilityRange: 3,
-                abilityPower: 3,
-                abilityCooldown: 2,
-                initiativeBonus: 4),
-            new PartyMember(
-                "Mage",
-                baseMaxHp: 7,
-                attack: 3,
-                defense: 1,
-                range: 2,
-                moveRange: 3,
-                hasDiagonalMove: false,
-                ability: AbilityType.ArcBolt,
-                abilityRange: 4,
-                abilityPower: 4,
-                abilityCooldown: 2,
-                initiativeBonus: 1),
-            new PartyMember(
-                "Cleric",
-                baseMaxHp: 10,
-                attack: 3,
-                defense: 2,
-                range: 1,
-                moveRange: 3,
-                hasDiagonalMove: false,
-                ability: AbilityType.Heal,
-                abilityRange: 3,
-                abilityPower: 4,
-                abilityCooldown: 2,
-                initiativeBonus: 1)
-        };
+            members.Add(new PartyMember(
+                template.Name,
+                baseMaxHp: template.BaseMaxHp,
+                attack: template.Attack,
+                defense: template.Defense,
+                range: template.Range,
+                moveRange: template.MoveRange,
+                hasDiagonalMove: template.HasDiagonalMove,
+                ability: template.Ability,
+                abilityRange: template.AbilityRange,
+                abilityPower: template.AbilityPower,
+                abilityCooldown: template.AbilityCooldown,
+                initiativeBonus: template.InitiativeBonus));
+        }
+
+        return members;
     }
 
     private void MovePartyTo(HexCoord coord)
@@ -748,7 +719,8 @@ public sealed class Game1 : Game
 
     private void StartEncounter(BiomeType biome)
     {
-        if (_rng.Next(100) < EventChancePercent)
+        var eventPool = _content.GetEvents(biome);
+        if (eventPool.Count > 0 && _rng.Next(100) < EventChancePercent)
         {
             StartEvent(biome);
         }
@@ -769,6 +741,11 @@ public sealed class Game1 : Game
     {
         _currentEventBiome = biome;
         _currentEvent = RollEvent(biome);
+        if (_currentEvent == null)
+        {
+            StartCombat(biome, "ENCOUNTER");
+            return;
+        }
         _mode = GameMode.Event;
         ShowToast("EVENT");
     }
@@ -805,56 +782,17 @@ public sealed class Game1 : Game
         return state;
     }
 
-    private readonly struct EnemyTemplate
-    {
-        public string Name { get; }
-        public int MaxHp { get; }
-        public int Attack { get; }
-        public int Defense { get; }
-        public int Range { get; }
-        public int MoveRange { get; }
-        public int InitiativeBonus { get; }
-
-        public EnemyTemplate(string name, int maxHp, int attack, int defense, int range, int moveRange, int initiativeBonus)
-        {
-            Name = name;
-            MaxHp = maxHp;
-            Attack = attack;
-            Defense = defense;
-            Range = range;
-            MoveRange = moveRange;
-            InitiativeBonus = initiativeBonus;
-        }
-    }
-
-    private IReadOnlyList<EnemyTemplate> GetEnemyPool(BiomeType biome)
-    {
-        return biome switch
-        {
-            BiomeType.Forest => new[]
-            {
-                new EnemyTemplate("Wolf", 7, 4, 1, 1, 4, 3),
-                new EnemyTemplate("Goblin", 6, 3, 1, 1, 3, 2)
-            },
-            BiomeType.Hills => new[]
-            {
-                new EnemyTemplate("Raider", 8, 4, 2, 1, 3, 1),
-                new EnemyTemplate("Wolf", 7, 4, 1, 1, 4, 3)
-            },
-            _ => new[]
-            {
-                new EnemyTemplate("Goblin", 6, 3, 1, 1, 3, 2),
-                new EnemyTemplate("Raider", 8, 4, 2, 1, 3, 1)
-            }
-        };
-    }
-
     private List<CombatUnit> BuildEnemyUnits(BiomeType biome, Point[] positions)
     {
-        var pool = GetEnemyPool(biome);
+        var pool = _content.GetEnemies(biome);
         int maxCount = Math.Min(positions.Length, 4);
         int enemyCount = _rng.Next(2, maxCount + 1);
         var enemies = new List<CombatUnit>();
+
+        if (pool.Count == 0)
+        {
+            return enemies;
+        }
 
         for (int i = 0; i < enemyCount; i++)
         {
@@ -879,104 +817,15 @@ public sealed class Game1 : Game
         return enemies;
     }
 
-    private EventDefinition RollEvent(BiomeType biome)
+    private EventDefinition? RollEvent(BiomeType biome)
     {
-        var pool = GetEventPool(biome);
+        var pool = _content.GetEvents(biome);
+        if (pool.Count == 0)
+        {
+            return null;
+        }
+
         return pool[_rng.Next(pool.Count)];
-    }
-
-    private IReadOnlyList<EventDefinition> GetEventPool(BiomeType biome)
-    {
-        var pool = new List<EventDefinition>();
-        pool.AddRange(GetCommonEvents());
-        pool.AddRange(GetBiomeEvents(biome));
-        return pool;
-    }
-
-    private IReadOnlyList<EventDefinition> GetCommonEvents()
-    {
-        return new[]
-        {
-            new EventDefinition(
-                "Strange Shrine",
-                "A weathered shrine sits beside the trail, its stones cold to the touch.",
-                BiomeType.Plains,
-                new[]
-                {
-                    new EventChoice("Pray for guidance", new EventEffect(1, 0, 0, false, "A calm settles over the party (+1 HP each).")),
-                    new EventChoice("Leave it be", new EventEffect(0, 0, 5, false, "You move on with fresh resolve (+5 XP)."))
-                })
-        };
-    }
-
-    private IReadOnlyList<EventDefinition> GetBiomeEvents(BiomeType biome)
-    {
-        return biome switch
-        {
-            BiomeType.Forest => new[]
-            {
-                new EventDefinition(
-                    "Berry Patch",
-                    "You find a patch of ripe berries tucked under the trees.",
-                    BiomeType.Forest,
-                    new[]
-                    {
-                        new EventChoice("Eat the berries", new EventEffect(2, 0, 0, false, "The party feels refreshed (+2 HP each).")),
-                        new EventChoice("Gather and move on", new EventEffect(0, 0, 10, false, "You mark the find in your notes (+10 XP)."))
-                    }),
-                new EventDefinition(
-                    "Wolf Howls",
-                    "Howls echo through the forest. Shadows pace you from the treeline.",
-                    BiomeType.Forest,
-                    new[]
-                    {
-                        new EventChoice("Stand your ground", new EventEffect(0, 0, 0, true, "A pack attacks!")),
-                        new EventChoice("Hide and wait", new EventEffect(0, 0, 5, false, "You avoid danger (+5 XP)."))
-                    })
-            },
-            BiomeType.Hills => new[]
-            {
-                new EventDefinition(
-                    "Rockslide",
-                    "Loose stones tumble down the slope as you climb.",
-                    BiomeType.Hills,
-                    new[]
-                    {
-                        new EventChoice("Dash through", new EventEffect(-2, 0, 0, false, "You are battered by debris (-2 HP each).")),
-                        new EventChoice("Find a safer path", new EventEffect(0, 0, 5, false, "You learn the terrain (+5 XP)."))
-                    }),
-                new EventDefinition(
-                    "Old Mine",
-                    "A collapsed mine entrance hints at forgotten riches.",
-                    BiomeType.Hills,
-                    new[]
-                    {
-                        new EventChoice("Search the shaft", new EventEffect(0, 0, 15, false, "You salvage ore and tools (+15 XP).")),
-                        new EventChoice("Keep moving", new EventEffect(0, 0, 5, false, "You stay alert (+5 XP)."))
-                    })
-            },
-            _ => new[]
-            {
-                new EventDefinition(
-                    "Wayfarer",
-                    "A lone traveler offers stories of the road ahead.",
-                    BiomeType.Plains,
-                    new[]
-                    {
-                        new EventChoice("Trade stories", new EventEffect(0, 0, 10, false, "You learn the region (+10 XP).")),
-                        new EventChoice("Decline politely", new EventEffect(0, 0, 5, false, "You keep your distance (+5 XP)."))
-                    }),
-                new EventDefinition(
-                    "Dust Storm",
-                    "A wall of dust rolls across the plains.",
-                    BiomeType.Plains,
-                    new[]
-                    {
-                        new EventChoice("Push through", new EventEffect(-1, 0, 0, false, "Grit wears you down (-1 HP each).")),
-                        new EventChoice("Take shelter", new EventEffect(0, 0, 5, false, "You recover your bearings (+5 XP)."))
-                    })
-            }
-        };
     }
 
     private void ResolveEventChoice(int index)

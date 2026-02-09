@@ -1,0 +1,16 @@
+{
+  "biomes": {
+    "Plains": [
+      { "name": "Goblin", "maxHp": 6, "attack": 3, "defense": 1, "range": 1, "moveRange": 3, "initiativeBonus": 2 },
+      { "name": "Raider", "maxHp": 8, "attack": 4, "defense": 2, "range": 1, "moveRange": 3, "initiativeBonus": 1 }
+    ],
+    "Forest": [
+      { "name": "Wolf", "maxHp": 7, "attack": 4, "defense": 1, "range": 1, "moveRange": 4, "initiativeBonus": 3 },
+      { "name": "Goblin", "maxHp": 6, "attack": 3, "defense": 1, "range": 1, "moveRange": 3, "initiativeBonus": 2 }
+    ],
+    "Hills": [
+      { "name": "Raider", "maxHp": 8, "attack": 4, "defense": 2, "range": 1, "moveRange": 3, "initiativeBonus": 1 },
+      { "name": "Wolf", "maxHp": 7, "attack": 4, "defense": 1, "range": 1, "moveRange": 4, "initiativeBonus": 3 }
+    ]
+  }
+}
