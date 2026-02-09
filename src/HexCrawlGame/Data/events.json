@@ -1,0 +1,194 @@
+{
+  "common": [
+    {
+      "title": "Strange Shrine",
+      "body": "A weathered shrine sits beside the trail, its stones cold to the touch.",
+      "choices": [
+        {
+          "text": "Pray for guidance",
+          "effect": {
+            "partyHpDelta": 1,
+            "randomPartyHpDelta": 0,
+            "legacyXpDelta": 0,
+            "forceCombat": false,
+            "resultText": "A calm settles over the party (+1 HP each)."
+          }
+        },
+        {
+          "text": "Leave it be",
+          "effect": {
+            "partyHpDelta": 0,
+            "randomPartyHpDelta": 0,
+            "legacyXpDelta": 5,
+            "forceCombat": false,
+            "resultText": "You move on with fresh resolve (+5 XP)."
+          }
+        }
+      ]
+    }
+  ],
+  "biomes": {
+    "Forest": [
+      {
+        "title": "Berry Patch",
+        "body": "You find a patch of ripe berries tucked under the trees.",
+        "choices": [
+          {
+            "text": "Eat the berries",
+            "effect": {
+              "partyHpDelta": 2,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 0,
+              "forceCombat": false,
+              "resultText": "The party feels refreshed (+2 HP each)."
+            }
+          },
+          {
+            "text": "Gather and move on",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 10,
+              "forceCombat": false,
+              "resultText": "You mark the find in your notes (+10 XP)."
+            }
+          }
+        ]
+      },
+      {
+        "title": "Wolf Howls",
+        "body": "Howls echo through the forest. Shadows pace you from the treeline.",
+        "choices": [
+          {
+            "text": "Stand your ground",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 0,
+              "forceCombat": true,
+              "resultText": "A pack attacks!"
+            }
+          },
+          {
+            "text": "Hide and wait",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 5,
+              "forceCombat": false,
+              "resultText": "You avoid danger (+5 XP)."
+            }
+          }
+        ]
+      }
+    ],
+    "Hills": [
+      {
+        "title": "Rockslide",
+        "body": "Loose stones tumble down the slope as you climb.",
+        "choices": [
+          {
+            "text": "Dash through",
+            "effect": {
+              "partyHpDelta": -2,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 0,
+              "forceCombat": false,
+              "resultText": "You are battered by debris (-2 HP each)."
+            }
+          },
+          {
+            "text": "Find a safer path",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 5,
+              "forceCombat": false,
+              "resultText": "You learn the terrain (+5 XP)."
+            }
+          }
+        ]
+      },
+      {
+        "title": "Old Mine",
+        "body": "A collapsed mine entrance hints at forgotten riches.",
+        "choices": [
+          {
+            "text": "Search the shaft",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 15,
+              "forceCombat": false,
+              "resultText": "You salvage ore and tools (+15 XP)."
+            }
+          },
+          {
+            "text": "Keep moving",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 5,
+              "forceCombat": false,
+              "resultText": "You stay alert (+5 XP)."
+            }
+          }
+        ]
+      }
+    ],
+    "Plains": [
+      {
+        "title": "Wayfarer",
+        "body": "A lone traveler offers stories of the road ahead.",
+        "choices": [
+          {
+            "text": "Trade stories",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 10,
+              "forceCombat": false,
+              "resultText": "You learn the region (+10 XP)."
+            }
+          },
+          {
+            "text": "Decline politely",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 5,
+              "forceCombat": false,
+              "resultText": "You keep your distance (+5 XP)."
+            }
+          }
+        ]
+      },
+      {
+        "title": "Dust Storm",
+        "body": "A wall of dust rolls across the plains.",
+        "choices": [
+          {
+            "text": "Push through",
+            "effect": {
+              "partyHpDelta": -1,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 0,
+              "forceCombat": false,
+              "resultText": "Grit wears you down (-1 HP each)."
+            }
+          },
+          {
+            "text": "Take shelter",
+            "effect": {
+              "partyHpDelta": 0,
+              "randomPartyHpDelta": 0,
+              "legacyXpDelta": 5,
+              "forceCombat": false,
+              "resultText": "You recover your bearings (+5 XP)."
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
