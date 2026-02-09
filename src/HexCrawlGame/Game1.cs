@@ -157,7 +157,7 @@ public sealed class Game1 : Game
         if (_input.IsLeftClick())
         {
             var screen = new Vector2(_input.MousePosition.X, _input.MousePosition.Y);
-            var world = screen - _overworldOrigin - _overworldCamera;
+            var world = screen - _overworldOrigin + _overworldCamera;
             var coord = HexMath.PixelToAxial(world, _hexSize);
 
             if (_hexMap.InBounds(coord) && HexCoord.Distance(coord, _partyPos) == 1)
@@ -199,7 +199,7 @@ public sealed class Game1 : Game
         if (_input.IsLeftClick())
         {
             var screen = new Vector2(_input.MousePosition.X, _input.MousePosition.Y);
-            var world = screen - _combatOrigin - _combatCamera;
+            var world = screen - _combatOrigin + _combatCamera;
             var gridPos = IsoMath.ScreenToGrid(world, _isoTileWidth, _isoTileHeight);
 
             if (_combatGrid.InBounds(gridPos))
@@ -287,7 +287,7 @@ public sealed class Game1 : Game
             {
                 var coord = new HexCoord(q, r);
                 var tile = _hexMap.GetTile(coord);
-                var center = HexMath.AxialToPixel(coord, _hexSize) + _overworldOrigin + _overworldCamera;
+                var center = HexMath.AxialToPixel(coord, _hexSize) + _overworldOrigin - _overworldCamera;
                 var drawPos = center - new Vector2(_hexTexture.Width / 2f, _hexTexture.Height / 2f);
 
                 Color color = GetBiomeColor(tile.Biome);
@@ -317,14 +317,14 @@ public sealed class Game1 : Game
             }
         }
 
-        var partyCenter = HexMath.AxialToPixel(_partyPos, _hexSize) + _overworldOrigin + _overworldCamera;
+        var partyCenter = HexMath.AxialToPixel(_partyPos, _hexSize) + _overworldOrigin - _overworldCamera;
         var partyRect = new Rectangle((int)partyCenter.X - 5, (int)partyCenter.Y - 10, 10, 20);
         _spriteBatch.Draw(_pixel, partyRect, new Color(230, 230, 240));
 
         var hover = GetHoveredHex();
         if (hover.HasValue && _hexMap.InBounds(hover.Value))
         {
-            var center = HexMath.AxialToPixel(hover.Value, _hexSize) + _overworldOrigin + _overworldCamera;
+            var center = HexMath.AxialToPixel(hover.Value, _hexSize) + _overworldOrigin - _overworldCamera;
             var drawPos = center - new Vector2(_hexTexture.Width / 2f, _hexTexture.Height / 2f);
             _spriteBatch.Draw(_hexTexture, drawPos, new Color(255, 255, 255) * 0.15f);
         }
@@ -444,7 +444,7 @@ public sealed class Game1 : Game
             {
                 var gridPos = new Point(x, y);
                 var tilePos = IsoMath.GridToScreen(gridPos, _isoTileWidth, _isoTileHeight)
-                    + _combatOrigin + _combatCamera;
+                    + _combatOrigin - _combatCamera;
                 Color color = new Color(40, 40, 50);
 
                 if (highlight != null && highlight.Contains(gridPos))
@@ -469,7 +469,7 @@ public sealed class Game1 : Game
             }
 
             var tilePos = IsoMath.GridToScreen(unit.Position, _isoTileWidth, _isoTileHeight)
-                + _combatOrigin + _combatCamera;
+                + _combatOrigin - _combatCamera;
             var center = tilePos + new Vector2(_isoTileWidth / 2f, _isoTileHeight / 2f);
 
             var rect = new Rectangle((int)center.X - 6, (int)center.Y - 14, 12, 20);
@@ -990,7 +990,7 @@ public sealed class Game1 : Game
     private HexCoord? GetHoveredHex()
     {
         var screen = new Vector2(_input.MousePosition.X, _input.MousePosition.Y);
-        var world = screen - _overworldOrigin - _overworldCamera;
+        var world = screen - _overworldOrigin + _overworldCamera;
         var coord = HexMath.PixelToAxial(world, _hexSize);
         return coord;
     }
